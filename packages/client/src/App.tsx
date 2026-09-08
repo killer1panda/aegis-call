@@ -5,6 +5,7 @@ import { CallRoom } from './components/CallRoom.js';
 import { SecurityBadge } from './components/SecurityBadge.js';
 import { NetworkStatsHUD } from './components/NetworkStatsHUD.js';
 import { EncryptedChat } from './components/EncryptedChat.js';
+import { FileDropModal } from './components/FileDropModal.js';
 import { useWebRTC } from './hooks/useWebRTC.js';
 import { ShieldCheck, RotateCcw } from 'lucide-react';
 
@@ -18,6 +19,7 @@ export function App() {
   const [isHUDOpen, setIsHUDOpen] = useState(false);
   const [isSecurityOpen, setIsSecurityOpen] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
+  const [isFileDropOpen, setIsFileDropOpen] = useState(false);
 
   const {
     callState,
@@ -38,6 +40,9 @@ export function App() {
     videoDevices,
     selectedAudioId,
     selectedVideoId,
+    isDataChannelOpen,
+    transferProgress,
+    receivedFiles,
     setSelectedAudioId,
     setSelectedVideoId,
     joinCall,
@@ -46,6 +51,7 @@ export function App() {
     toggleVideo,
     toggleScreenShare,
     sendMessage,
+    sendFile,
     markVerified,
     clearUnreadChat,
   } = useWebRTC(roomId);
@@ -150,6 +156,7 @@ export function App() {
             onOpenSecurity={() => setIsSecurityOpen(true)}
             onToggleHUD={() => setIsHUDOpen((prev) => !prev)}
             onToggleChat={handleOpenChat}
+            onOpenFileDrop={() => setIsFileDropOpen(true)}
             onLeave={leaveCall}
             roomId={roomId}
           />
@@ -181,6 +188,16 @@ export function App() {
         onClose={() => setIsChatOpen(false)}
         messages={messages}
         onSendMessage={sendMessage}
+      />
+
+      {/* P2P Encrypted File Drop Modal */}
+      <FileDropModal
+        isOpen={isFileDropOpen}
+        onClose={() => setIsFileDropOpen(false)}
+        onSendFile={sendFile}
+        transferProgress={transferProgress}
+        receivedFiles={receivedFiles}
+        isDataChannelOpen={isDataChannelOpen}
       />
     </div>
   );

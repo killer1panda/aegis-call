@@ -4,12 +4,16 @@ import {
   deriveSessionKeys,
   generateSafetyNumbers,
   DataCipher,
+  FileCipher,
+  FileMetadata,
+  EncryptedFileChunk,
   KeyPair,
   DerivedSessionKeys,
   SASVerification,
   FrameCipherStats,
   EncryptedMessagePayload,
 } from '@aegis/crypto';
+import { ReceivedFile } from '../components/FileDropModal.js';
 
 export type CallState =
   | 'idle'
@@ -38,6 +42,13 @@ export interface NetworkStats {
   resolution: string;
   candidateType: string;
   cipherSuite: string;
+}
+
+export interface TransferProgress {
+  active: boolean;
+  percent: number;
+  fileName: string;
+  mode: 'sending' | 'receiving';
 }
 
 const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
@@ -82,12 +93,23 @@ export function useWebRTC(roomId: string) {
   const [selectedAudioId, setSelectedAudioId] = useState<string>('');
   const [selectedVideoId, setSelectedVideoId] = useState<string>('');
 
+  // File Transfer State
+  const [isDataChannelOpen, setIsDataChannelOpen] = useState(false);
+  const [transferProgress, setTransferProgress] = useState<TransferProgress>({
+    active: false,
+    percent: 0,
+    fileName: '',
+    mode: 'sending',
+  });
+  const [receivedFiles, setReceivedFiles] = useState<ReceivedFile[]>([]);
+
   // Refs for WebRTC & Cryptography
   const peerIdRef = useRef<string>(`peer-${Math.random().toString(36).substring(2, 9)}`);
   const keyPairRef = useRef<KeyPair | null>(null);
   const remotePublicKeyHexRef = useRef<string | null>(null);
   const sessionKeysRef = useRef<DerivedSessionKeys | null>(null);
   const dataCipherRef = useRef<DataCipher | null>(null);
+  const fileCipherRef = useRef<FileCipher | null>(null);
 
   const socketRef = useRef<WebSocket | null>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
@@ -97,6 +119,12 @@ export function useWebRTC(roomId: string) {
 
   const statsIntervalRef = useRef<number | null>(null);
   const lastBytesRef = useRef<{ bytes: number; time: number }>({ bytes: 0, time: Date.now() });
+
+  // Incoming file assembly buffer
+  const incomingFileRef = useRef<{
+    metadata: FileMetadata | null;
+    chunks: Map<number, Uint8Array>;
+  }>({ metadata: null, chunks: new Map() });
 
   // 1. Initialize KeyPair and Enumerate Media Devices
   useEffect(() => {
@@ -142,7 +170,7 @@ export function useWebRTC(roomId: string) {
       setLocalStream(stream);
       return stream;
     } catch (err: any) {
-      console.warn('getUserMedia failed with video, attempting audio-only fallback:', err);
+      console.warn('getUserMedia fallback to audio-only:', err);
       try {
         const audioOnly = await navigator.mediaDevices.getUserMedia({ audio: true });
         setLocalStream(audioOnly);
@@ -154,12 +182,11 @@ export function useWebRTC(roomId: string) {
     }
   }, [selectedAudioId, selectedVideoId]);
 
-  // Initial preview stream on lobby
   useEffect(() => {
     initLocalMedia().catch(() => {});
   }, [selectedAudioId, selectedVideoId]);
 
-  // 3. Initialize Dedicated Frame Encryption Worker
+  // 3. Initialize Dedicated Worker
   const initWorker = useCallback(() => {
     if (workerRef.current) return workerRef.current;
 
@@ -180,96 +207,21 @@ export function useWebRTC(roomId: string) {
       workerRef.current = worker;
       return worker;
     } catch (err) {
-      console.warn('Web Worker for Insertable Streams could not be loaded:', err);
+      console.warn('Web Worker for Insertable Streams not available:', err);
       return null;
     }
   }, []);
 
-  // 4. Setup WebRTC PeerConnection
-  const createPeerConnection = useCallback((worker: Worker | null, isInitiator: boolean) => {
-    const pc = new RTCPeerConnection({
-      iceServers: DEFAULT_ICE_SERVERS,
-    });
-    pcRef.current = pc;
-
-    // Attach local stream tracks
-    if (localStream) {
-      localStream.getTracks().forEach((track) => {
-        const sender = pc.addTrack(track, localStream);
-
-        // WebRTC Insertable Streams (RTCRtpScriptTransform)
-        if (worker && 'RTCRtpScriptTransform' in window && (window as any).RTCRtpScriptTransform) {
-          try {
-            (sender as any).transform = new (window as any).RTCRtpScriptTransform(worker, {
-              operation: 'encode',
-              kind: track.kind,
-            });
-          } catch (e) {
-            console.warn('Error attaching sender transform:', e);
-          }
-        }
-      });
-    }
-
-    // Handle remote tracks
-    pc.ontrack = (event) => {
-      const stream = event.streams[0] || new MediaStream([event.track]);
-      setRemoteStream(stream);
-
-      // Attach receiver transform for decryption
-      if (worker && 'RTCRtpScriptTransform' in window && (window as any).RTCRtpScriptTransform) {
-        try {
-          (event.receiver as any).transform = new (window as any).RTCRtpScriptTransform(worker, {
-            operation: 'decode',
-            kind: event.track.kind,
-          });
-        } catch (e) {
-          console.warn('Error attaching receiver transform:', e);
-        }
-      }
-    };
-
-    // ICE Candidate trickle
-    pc.onicecandidate = (event) => {
-      if (event.candidate && socketRef.current?.readyState === WebSocket.OPEN) {
-        socketRef.current.send(
-          JSON.stringify({
-            type: 'signal',
-            targetPeerId: '', // Server will route to other peer in 1-to-1 room
-            data: { type: 'ice-candidate', candidate: event.candidate },
-          })
-        );
-      }
-    };
-
-    // Connection state monitoring
-    pc.onconnectionstatechange = () => {
-      if (pc.connectionState === 'connected') {
-        setCallState('connected');
-      } else if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
-        setCallState('ended');
-      }
-    };
-
-    // DataChannel for Encrypted Chat & SAS Verification
-    if (isInitiator) {
-      const dc = pc.createDataChannel('aegis-secure-channel');
-      setupDataChannel(dc);
-    } else {
-      pc.ondatachannel = (event) => {
-        setupDataChannel(event.channel);
-      };
-    }
-
-    return pc;
-  }, [localStream]);
-
-  // 5. Setup DataChannel
-  const setupDataChannel = (dc: RTCDataChannel) => {
+  // 4. Setup DataChannel with Encrypted Chat & File Streaming
+  const setupDataChannel = useCallback((dc: RTCDataChannel) => {
     dataChannelRef.current = dc;
 
     dc.onopen = () => {
-      console.log('🛡️ E2EE DataChannel opened');
+      setIsDataChannelOpen(true);
+    };
+
+    dc.onclose = () => {
+      setIsDataChannelOpen(false);
     };
 
     dc.onmessage = async (event) => {
@@ -294,19 +246,158 @@ export function useWebRTC(roomId: string) {
           };
           setMessages((prev) => [...prev, newMsg]);
           setUnreadChatCount((prev) => prev + 1);
+          return;
+        }
+
+        // Incoming File Metadata
+        if (raw.type === 'file-meta') {
+          const meta = raw.metadata as FileMetadata;
+          incomingFileRef.current = {
+            metadata: meta,
+            chunks: new Map(),
+          };
+          setTransferProgress({
+            active: true,
+            percent: 0,
+            fileName: meta.name,
+            mode: 'receiving',
+          });
+          return;
+        }
+
+        // Incoming Encrypted File Chunk
+        if (raw.type === 'file-chunk' && fileCipherRef.current) {
+          const chunk = raw.chunk as EncryptedFileChunk;
+          const meta = incomingFileRef.current.metadata;
+          if (!meta || meta.fileId !== chunk.fileId) return;
+
+          const decryptedChunk = await fileCipherRef.current.decryptChunk(chunk);
+          incomingFileRef.current.chunks.set(chunk.chunkIndex, decryptedChunk);
+
+          const progress = Math.round((incomingFileRef.current.chunks.size / meta.totalChunks) * 100);
+          setTransferProgress({
+            active: true,
+            percent: progress,
+            fileName: meta.name,
+            mode: 'receiving',
+          });
+
+          // All chunks received! Verify SHA-256 and assemble
+          if (incomingFileRef.current.chunks.size === meta.totalChunks) {
+            const sortedChunks: Uint8Array[] = [];
+            for (let i = 0; i < meta.totalChunks; i++) {
+              sortedChunks.push(incomingFileRef.current.chunks.get(i)!);
+            }
+
+            try {
+              const fullFile = fileCipherRef.current.verifyAndReassemble(sortedChunks, meta.sha256Checksum);
+              const blob = new Blob([fullFile.buffer as ArrayBuffer], { type: meta.mimeType });
+              const blobUrl = URL.createObjectURL(blob);
+
+              setReceivedFiles((prev) => [
+                {
+                  metadata: meta,
+                  blobUrl,
+                  timestamp: Date.now(),
+                },
+                ...prev,
+              ]);
+            } catch (checksumErr) {
+              console.error('File integrity verification failed:', checksumErr);
+            } finally {
+              setTransferProgress({
+                active: false,
+                percent: 100,
+                fileName: meta.name,
+                mode: 'receiving',
+              });
+              incomingFileRef.current = { metadata: null, chunks: new Map() };
+            }
+          }
         }
       } catch (err) {
         console.warn('Error parsing incoming DataChannel message:', err);
       }
     };
-  };
+  }, []);
+
+  // 5. Setup WebRTC PeerConnection
+  const createPeerConnection = useCallback((worker: Worker | null, isInitiator: boolean) => {
+    const pc = new RTCPeerConnection({
+      iceServers: DEFAULT_ICE_SERVERS,
+    });
+    pcRef.current = pc;
+
+    if (localStream) {
+      localStream.getTracks().forEach((track) => {
+        const sender = pc.addTrack(track, localStream);
+
+        if (worker && 'RTCRtpScriptTransform' in window && (window as any).RTCRtpScriptTransform) {
+          try {
+            (sender as any).transform = new (window as any).RTCRtpScriptTransform(worker, {
+              operation: 'encode',
+              kind: track.kind,
+            });
+          } catch (e) {
+            console.warn('Error attaching sender transform:', e);
+          }
+        }
+      });
+    }
+
+    pc.ontrack = (event) => {
+      const stream = event.streams[0] || new MediaStream([event.track]);
+      setRemoteStream(stream);
+
+      if (worker && 'RTCRtpScriptTransform' in window && (window as any).RTCRtpScriptTransform) {
+        try {
+          (event.receiver as any).transform = new (window as any).RTCRtpScriptTransform(worker, {
+            operation: 'decode',
+            kind: event.track.kind,
+          });
+        } catch (e) {
+          console.warn('Error attaching receiver transform:', e);
+        }
+      }
+    };
+
+    pc.onicecandidate = (event) => {
+      if (event.candidate && socketRef.current?.readyState === WebSocket.OPEN) {
+        socketRef.current.send(
+          JSON.stringify({
+            type: 'signal',
+            targetPeerId: '',
+            data: { type: 'ice-candidate', candidate: event.candidate },
+          })
+        );
+      }
+    };
+
+    pc.onconnectionstatechange = () => {
+      if (pc.connectionState === 'connected') {
+        setCallState('connected');
+      } else if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
+        setCallState('ended');
+      }
+    };
+
+    if (isInitiator) {
+      const dc = pc.createDataChannel('aegis-secure-channel');
+      setupDataChannel(dc);
+    } else {
+      pc.ondatachannel = (event) => {
+        setupDataChannel(event.channel);
+      };
+    }
+
+    return pc;
+  }, [localStream, setupDataChannel]);
 
   // 6. Connect to Signaling Server & Join Room
   const joinCall = useCallback(async () => {
     setCallState('joining');
     setErrorMessage(null);
 
-    // Make sure we have local stream
     let stream = localStream;
     if (!stream) {
       try {
@@ -319,7 +410,6 @@ export function useWebRTC(roomId: string) {
 
     const worker = initWorker();
 
-    // Determine WebSocket host
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsHost = window.location.hostname === 'localhost' ? 'localhost:4000' : window.location.host;
     const wsUrl = `${wsProtocol}//${wsHost}/ws`;
@@ -329,7 +419,6 @@ export function useWebRTC(roomId: string) {
 
     ws.onopen = () => {
       setCallState('connecting');
-      // Send join message
       ws.send(
         JSON.stringify({
           type: 'join',
@@ -355,7 +444,6 @@ export function useWebRTC(roomId: string) {
             const isInitiator = msg.isInitiator;
             const pc = createPeerConnection(worker, isInitiator);
 
-            // Broadcast our ephemeral X25519 public key immediately
             ws.send(
               JSON.stringify({
                 type: 'signal',
@@ -370,7 +458,6 @@ export function useWebRTC(roomId: string) {
           }
 
           case 'peer-joined': {
-            // A second peer joined! Re-send our public key to make sure they have it
             ws.send(
               JSON.stringify({
                 type: 'signal',
@@ -392,7 +479,6 @@ export function useWebRTC(roomId: string) {
             if (signalData.type === 'key-exchange') {
               remotePublicKeyHexRef.current = signalData.publicKeyHex;
 
-              // Derive symmetric session keys via X25519 ECDH + HKDF
               const peerPublicKeyBytes = hexToBytes(signalData.publicKeyHex);
               const derivedKeys = deriveSessionKeys(
                 keyPairRef.current!.privateKey,
@@ -401,7 +487,6 @@ export function useWebRTC(roomId: string) {
               );
               sessionKeysRef.current = derivedKeys;
 
-              // Generate SAS Safety Numbers (Emojis + Numbers)
               const sas = generateSafetyNumbers(
                 keyPairRef.current!.publicKey,
                 peerPublicKeyBytes,
@@ -409,13 +494,13 @@ export function useWebRTC(roomId: string) {
               );
               setSafetyNumbers(sas);
 
-              // Initialize DataChannel Cipher
               dataCipherRef.current = new DataCipher(
                 derivedKeys.dataKey,
                 keyPairRef.current!.publicKeyHex.slice(0, 8)
               );
 
-              // Initialize Web Worker frame ciphers
+              fileCipherRef.current = new FileCipher(derivedKeys.dataKey);
+
               if (worker) {
                 worker.postMessage({
                   type: 'init-ciphers',
@@ -425,7 +510,6 @@ export function useWebRTC(roomId: string) {
                 });
               }
 
-              // If we are initiator and have peer's key, send WebRTC Offer
               if (pc && pc.signalingState === 'stable') {
                 const offer = await pc.createOffer();
                 await pc.setLocalDescription(offer);
@@ -476,13 +560,6 @@ export function useWebRTC(roomId: string) {
       setErrorMessage('Could not connect to signaling server. Make sure it is running.');
     };
 
-    ws.onclose = () => {
-      if (callState !== 'ended' && callState !== 'room-full') {
-        // ended
-      }
-    };
-
-    // Start live WebRTC stats polling
     startStatsPolling();
   }, [roomId, localStream, initLocalMedia, initWorker, createPeerConnection]);
 
@@ -524,7 +601,6 @@ export function useWebRTC(roomId: string) {
           }
         });
 
-        // Compute Bitrate
         const now = Date.now();
         const deltaT = (now - lastBytesRef.current.time) / 1000;
         const deltaB = totalBytes - lastBytesRef.current.bytes;
@@ -542,7 +618,7 @@ export function useWebRTC(roomId: string) {
           fps,
           resolution,
           candidateType,
-          cipherSuite: 'AES-256-GCM (Payload) + DTLS 1.3',
+          cipherSuite: 'IETF SFrame + AES-256-GCM + DTLS 1.3',
         });
       } catch (err) {
         // ignore
@@ -571,7 +647,6 @@ export function useWebRTC(roomId: string) {
 
   const toggleScreenShare = async () => {
     if (isScreenSharing) {
-      // Revert to camera
       if (screenTrackRef.current) {
         screenTrackRef.current.stop();
         screenTrackRef.current = null;
@@ -614,7 +689,6 @@ export function useWebRTC(roomId: string) {
       if (dataCipherRef.current) {
         payload = await dataCipherRef.current.encryptMessage(text);
       } else {
-        // Fallback
         payload = {
           iv: '',
           ciphertext: btoa(text),
@@ -644,7 +718,69 @@ export function useWebRTC(roomId: string) {
     }
   };
 
-  // 10. Mark Peer as Cryptographically Verified
+  // 10. Send Encrypted File Chunks
+  const sendFile = async (file: globalThis.File) => {
+    if (!dataChannelRef.current || dataChannelRef.current.readyState !== 'open' || !fileCipherRef.current) {
+      return;
+    }
+
+    const cipher = fileCipherRef.current;
+    const arrayBuffer = await file.arrayBuffer();
+    const fileBytes = new Uint8Array(arrayBuffer);
+
+    const { metadata, chunks } = await cipher.prepareFile(fileBytes, file.name, file.type);
+
+    setTransferProgress({
+      active: true,
+      percent: 0,
+      fileName: file.name,
+      mode: 'sending',
+    });
+
+    // Send metadata announcement first
+    dataChannelRef.current.send(
+      JSON.stringify({
+        type: 'file-meta',
+        metadata,
+      })
+    );
+
+    // Stream each encrypted chunk with pacing
+    for (let i = 0; i < chunks.length; i++) {
+      const encryptedChunk = await cipher.encryptChunk(metadata.fileId, i, metadata.totalChunks, chunks[i]);
+
+      dataChannelRef.current.send(
+        JSON.stringify({
+          type: 'file-chunk',
+          chunk: encryptedChunk,
+        })
+      );
+
+      const percent = Math.round(((i + 1) / chunks.length) * 100);
+      setTransferProgress({
+        active: true,
+        percent,
+        fileName: file.name,
+        mode: 'sending',
+      });
+
+      // Micro-pause to prevent WebRTC DataChannel buffer flooding
+      if (i % 10 === 0 && i > 0) {
+        await new Promise((r) => setTimeout(r, 5));
+      }
+    }
+
+    setTimeout(() => {
+      setTransferProgress({
+        active: false,
+        percent: 100,
+        fileName: file.name,
+        mode: 'sending',
+      });
+    }, 500);
+  };
+
+  // 11. Mark Peer as Cryptographically Verified
   const markVerified = () => {
     setIsSelfVerified(true);
     if (dataChannelRef.current && dataChannelRef.current.readyState === 'open') {
@@ -652,7 +788,7 @@ export function useWebRTC(roomId: string) {
     }
   };
 
-  // 11. Leave Call & Teardown
+  // 12. Leave Call & Teardown
   const leaveCall = () => {
     if (statsIntervalRef.current) clearInterval(statsIntervalRef.current);
     if (socketRef.current) {
@@ -667,7 +803,6 @@ export function useWebRTC(roomId: string) {
     setCallState('ended');
   };
 
-  // Reset unread count when viewing
   const clearUnreadChat = () => setUnreadChatCount(0);
 
   return {
@@ -689,6 +824,9 @@ export function useWebRTC(roomId: string) {
     videoDevices,
     selectedAudioId,
     selectedVideoId,
+    isDataChannelOpen,
+    transferProgress,
+    receivedFiles,
     setSelectedAudioId,
     setSelectedVideoId,
     joinCall,
@@ -697,12 +835,12 @@ export function useWebRTC(roomId: string) {
     toggleVideo,
     toggleScreenShare,
     sendMessage,
+    sendFile,
     markVerified,
     clearUnreadChat,
   };
 }
 
-// Helper to convert hex string to Uint8Array
 function hexToBytes(hex: string): Uint8Array {
   const bytes = new Uint8Array(hex.length / 2);
   for (let i = 0; i < bytes.length; i++) {

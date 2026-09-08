@@ -14,6 +14,7 @@ import {
   Maximize2,
   Users,
   Lock,
+  UploadCloud,
 } from 'lucide-react';
 import { useAudioVisualizer } from '../hooks/useAudioVisualizer.js';
 
@@ -32,6 +33,7 @@ interface CallRoomProps {
   onOpenSecurity: () => void;
   onToggleHUD: () => void;
   onToggleChat: () => void;
+  onOpenFileDrop: () => void;
   onLeave: () => void;
   roomId: string;
 }
@@ -51,6 +53,7 @@ export const CallRoom: React.FC<CallRoomProps> = ({
   onOpenSecurity,
   onToggleHUD,
   onToggleChat,
+  onOpenFileDrop,
   onLeave,
   roomId,
 }) => {
@@ -290,6 +293,16 @@ export const CallRoom: React.FC<CallRoomProps> = ({
           className="min-w-[44px] min-h-[44px] p-3 rounded-xl bg-dark-850 hover:bg-dark-800 border border-dark-700 text-cyber-cyan transition-colors focus-visible:ring-2 focus-visible:ring-cyber-emerald focus-visible:outline-none"
         >
           <Activity className="w-5 h-5" aria-hidden="true" />
+        </button>
+
+        {/* P2P Encrypted File Drop Trigger */}
+        <button
+          onClick={onOpenFileDrop}
+          aria-label="P2P Encrypted File Drop"
+          title="P2P Encrypted File Drop"
+          className="min-w-[44px] min-h-[44px] p-3 rounded-xl bg-dark-850 hover:bg-dark-800 border border-dark-700 text-cyber-emerald transition-colors focus-visible:ring-2 focus-visible:ring-cyber-emerald focus-visible:outline-none"
+        >
+          <UploadCloud className="w-5 h-5" aria-hidden="true" />
         </button>
 
         {/* Encrypted Chat Trigger with Unread Counter */}
