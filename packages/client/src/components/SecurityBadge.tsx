@@ -167,7 +167,7 @@ export const SecurityBadge: React.FC<SecurityBadgeProps> = ({
 
           {/* Educational Note on Threat Model */}
           <div className="text-[11px] text-slate-400 bg-dark-950/60 border border-dark-800 rounded-xl p-3 leading-relaxed">
-            <span className="text-slate-300 font-semibold">How it works:</span> Aegis uses ephemeral X25519 Elliptic Curve Diffie-Hellman (ECDH) key exchange. The Safety Numbers are derived strictly from the shared secret. If an adversary attempts to tap or impersonate the signaling server, the mathematical keys will differ and the numbers will not match.
+            <span className="text-slate-300 font-semibold">How it works:</span> Aegis utilizes <strong>Hybrid Post-Quantum Cryptography</strong> combining NIST FIPS 203 ML-KEM-768 (Kyber) and classical X25519 ECDH with HKDF-SHA256 session key ratcheting. Safety Numbers are derived from the unified hybrid shared secret. Even if a future quantum computer breaks elliptic curves or attempts "Harvest Now, Decrypt Later" (HNDL), the lattice-based ML-KEM-768 layer keeps your audio, video, and data channels completely indecipherable.
           </div>
         </div>
 

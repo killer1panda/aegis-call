@@ -170,7 +170,7 @@ export const CallRoom: React.FC<CallRoomProps> = ({
         {/* Top Right Zero-Trust SFU Relay Indicator */}
         <div className="absolute top-4 right-4 flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-dark-900/80 backdrop-blur-md border border-dark-750 text-[11px] font-mono text-slate-300 pointer-events-none">
           <span className="w-2 h-2 rounded-full bg-cyber-emerald animate-pulse" />
-          <span>Zero-Trust SFU • SFrame</span>
+          <span>Zero-Trust SFU • SFrame • ML-KEM-768</span>
         </div>
 
         {/* Remote Peer Status Overlay */}

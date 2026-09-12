@@ -5,3 +5,4 @@ export * from './frameCipher.js';
 export * from './dataCipher.js';
 export * from './sframe.js';
 export * from './fileCipher.js';
+export * from './postQuantum.js';
