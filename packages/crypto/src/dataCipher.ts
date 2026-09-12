@@ -26,12 +26,15 @@ export class DataCipher {
   public async encryptMessage(plaintext: string): Promise<EncryptedMessagePayload> {
     const key = await this.getKey();
     const iv = globalThis.crypto.getRandomValues(new Uint8Array(12));
+    const timestamp = Date.now();
+    const aad = new TextEncoder().encode(`${this.localFingerprint}:${timestamp}`);
     const encodedText = new TextEncoder().encode(plaintext);
 
     const ciphertextBuffer = await globalThis.crypto.subtle.encrypt(
       {
         name: 'AES-GCM',
         iv: iv as unknown as BufferSource,
+        additionalData: aad as unknown as BufferSource,
       },
       key,
       encodedText as unknown as BufferSource
@@ -41,7 +44,7 @@ export class DataCipher {
       iv: bufferToBase64(iv),
       ciphertext: bufferToBase64(new Uint8Array(ciphertextBuffer)),
       senderFingerprint: this.localFingerprint,
-      timestamp: Date.now(),
+      timestamp,
     };
   }
 
@@ -49,11 +52,13 @@ export class DataCipher {
     const key = await this.getKey();
     const iv = base64ToBuffer(payload.iv);
     const ciphertext = base64ToBuffer(payload.ciphertext);
+    const aad = new TextEncoder().encode(`${payload.senderFingerprint}:${payload.timestamp}`);
 
     const decryptedBuffer = await globalThis.crypto.subtle.decrypt(
       {
         name: 'AES-GCM',
         iv: iv as unknown as BufferSource,
+        additionalData: aad as unknown as BufferSource,
       },
       key,
       ciphertext as unknown as BufferSource

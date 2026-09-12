@@ -22,12 +22,18 @@ fn get_desktop_security_info() -> Result<DesktopSecurityInfo, String> {
     })
 }
 
+use tauri::Manager;
+
 #[tauri::command]
 fn trigger_panic_wipe(app: tauri::AppHandle) -> Result<(), String> {
-    log::warn!("EMERGENCY PANIC WIPE TRIGGERED: Zeroizing state and closing application");
+    log::warn!("EMERGENCY PANIC WIPE TRIGGERED: Zeroizing memory, wiping local caches, and terminating");
+    if let Ok(cache_dir) = app.path().app_cache_dir() {
+        let _ = std::fs::remove_dir_all(&cache_dir);
+    }
     app.exit(0);
     Ok(())
 }
+
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {

@@ -2,7 +2,7 @@ import { ml_kem768_x25519 } from '@noble/post-quantum/hybrid.js';
 import { hkdf } from '@noble/hashes/hkdf';
 import { sha256 } from '@noble/hashes/sha256';
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils';
-import { DerivedSessionKeys } from './types.js';
+import { DerivedSessionKeys, DirectionalSessionKeys } from './types.js';
 
 export interface HybridKeyPair {
   publicKey: Uint8Array;
@@ -47,6 +47,66 @@ export function generateHybridKeyPair(): HybridKeyPair {
     postQuantumPublicKey: publicKey.slice(HYBRID_KEY_LENGTHS.classicalPk),
   };
 }
+
+/**
+ * Derives directional symmetric keys and SAS entropy from the hybrid shared secret
+ * using HKDF-SHA256, eliminating AES-GCM nonce collision (CWE-323).
+ */
+export function deriveHybridDirectionalSessionKeys(
+  sharedSecret: Uint8Array,
+  ourPublicKey: Uint8Array,
+  peerPublicKey: Uint8Array,
+  roomId: string
+): DirectionalSessionKeys {
+  const salt = sha256(new TextEncoder().encode(`aegis-hybrid-pqc-directional-salt:${roomId}`));
+  const info = new TextEncoder().encode('aegis-hybrid-x25519-mlkem768-directional-v1');
+
+  // Total required key material: 248 bytes
+  const derivedBytes = hkdf(sha256, sharedSecret, salt, info, 248);
+
+  const initAudio = derivedBytes.slice(0, 32);
+  const respAudio = derivedBytes.slice(32, 64);
+  const initVideo = derivedBytes.slice(64, 96);
+  const respVideo = derivedBytes.slice(96, 128);
+  const initData = derivedBytes.slice(128, 160);
+  const respData = derivedBytes.slice(160, 192);
+  const initIv = derivedBytes.slice(192, 204);
+  const respIv = derivedBytes.slice(204, 216);
+  const sasEntropy = derivedBytes.slice(216, 248);
+
+  const ourHex = bytesToHex(ourPublicKey);
+  const peerHex = bytesToHex(peerPublicKey);
+  const isInitiator = ourHex.localeCompare(peerHex) < 0;
+
+  if (isInitiator) {
+    return {
+      sendAudioKey: initAudio,
+      sendVideoKey: initVideo,
+      sendDataKey: initData,
+      sendIvBase: initIv,
+      recvAudioKey: respAudio,
+      recvVideoKey: respVideo,
+      recvDataKey: respData,
+      recvIvBase: respIv,
+      sasEntropy,
+      role: 'initiator',
+    };
+  } else {
+    return {
+      sendAudioKey: respAudio,
+      sendVideoKey: respVideo,
+      sendDataKey: respData,
+      sendIvBase: respIv,
+      recvAudioKey: initAudio,
+      recvVideoKey: initVideo,
+      recvDataKey: initData,
+      recvIvBase: initIv,
+      sasEntropy,
+      role: 'responder',
+    };
+  }
+}
+
 
 /**
  * Derives independent symmetric keys and SAS entropy from the hybrid shared secret
@@ -130,3 +190,29 @@ export function decapsulateHybrid(
   const sharedSecret = ml_kem768_x25519.decapsulate(ctBytes, secretKey);
   return deriveHybridSessionKeys(sharedSecret, roomId);
 }
+
+/**
+ * Decapsulates the recipient's hybrid shared secret from the received encapsulation ciphertext
+ * and derives directional session keys (eliminating nonce collision).
+ */
+export function decapsulateHybridDirectional(
+  cipherText: Uint8Array | string,
+  secretKey: Uint8Array,
+  ourPublicKey: Uint8Array,
+  peerPublicKey: Uint8Array,
+  roomId: string
+): DirectionalSessionKeys {
+  const ctBytes = typeof cipherText === 'string'
+    ? hexToBytes(cipherText)
+    : cipherText;
+
+  if (ctBytes.length !== HYBRID_KEY_LENGTHS.cipherText) {
+    throw new Error(
+      `Invalid hybrid ciphertext length: expected ${HYBRID_KEY_LENGTHS.cipherText} bytes, got ${ctBytes.length}`
+    );
+  }
+
+  const sharedSecret = ml_kem768_x25519.decapsulate(ctBytes, secretKey);
+  return deriveHybridDirectionalSessionKeys(sharedSecret, ourPublicKey, peerPublicKey, roomId);
+}
+

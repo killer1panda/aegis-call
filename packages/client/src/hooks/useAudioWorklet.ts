@@ -185,6 +185,33 @@ export function useAudioWorklet(rawStream: MediaStream | null) {
     };
   }, [rawStream]);
 
+  const ensureAudioResumed = useCallback(async () => {
+    if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
+      try {
+        await audioContextRef.current.resume();
+      } catch (err) {
+        console.warn('Could not resume AudioContext:', err);
+      }
+    }
+  }, []);
+
+  // Guarantee AudioContext unpauses on any user interaction (click, touch, key)
+  useEffect(() => {
+    const handleUserGesture = () => {
+      if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
+        audioContextRef.current.resume().catch(() => {});
+      }
+    };
+    window.addEventListener('click', handleUserGesture, { passive: true });
+    window.addEventListener('touchstart', handleUserGesture, { passive: true });
+    window.addEventListener('keydown', handleUserGesture, { passive: true });
+    return () => {
+      window.removeEventListener('click', handleUserGesture);
+      window.removeEventListener('touchstart', handleUserGesture);
+      window.removeEventListener('keydown', handleUserGesture);
+    };
+  }, []);
+
   const toggleNoiseSuppression = useCallback(() => {
     setIsNoiseSuppressionEnabled((prev) => {
       const next = !prev;
@@ -202,5 +229,7 @@ export function useAudioWorklet(rawStream: MediaStream | null) {
     toggleNoiseSuppression,
     isVadActive,
     estimatedNoiseFloorDb,
+    ensureAudioResumed,
   };
 }
+

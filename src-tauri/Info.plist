@@ -6,5 +6,8 @@
     <string>AegisCall requires camera access for end-to-end encrypted video communication.</string>
     <key>NSMicrophoneUsageDescription</key>
     <string>AegisCall requires microphone access for end-to-end encrypted voice calling.</string>
+    <key>NSScreenCaptureUsageDescription</key>
+    <string>AegisCall requires screen recording permission for peer-to-peer encrypted screen sharing.</string>
 </dict>
+
 </plist>

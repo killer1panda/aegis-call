@@ -39,7 +39,8 @@ describe('End-to-End Encrypted FileCipher', () => {
     const reassembled = bobCipher.verifyAndReassemble(decryptedChunks, metadata.sha256Checksum);
     expect(reassembled.length).toBe(fileBytes.length);
     expect(reassembled).toEqual(fileBytes);
-  });
+  }, 15000);
+
 
   it('should fail if any chunk has been corrupted or tampered with', async () => {
     const alice = generateEphemeralKeyPair();

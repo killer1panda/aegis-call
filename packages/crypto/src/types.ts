@@ -12,6 +12,20 @@ export interface DerivedSessionKeys {
   sasEntropy: Uint8Array;
 }
 
+export interface DirectionalSessionKeys {
+  sendAudioKey: Uint8Array;
+  sendVideoKey: Uint8Array;
+  sendDataKey: Uint8Array;
+  sendIvBase: Uint8Array;
+  recvAudioKey: Uint8Array;
+  recvVideoKey: Uint8Array;
+  recvDataKey: Uint8Array;
+  recvIvBase: Uint8Array;
+  sasEntropy: Uint8Array;
+  role: 'initiator' | 'responder';
+}
+
+
 export interface SASVerification {
   numericCode: string; // 60-digit formatted as 12 groups of 5 digits
   emojis: string[];    // 4 distinct emojis for rapid verbal verification

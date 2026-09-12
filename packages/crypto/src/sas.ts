@@ -11,7 +11,7 @@ const EMOJI_ALPHABET = [
   '💎', '👑', '🛡️', '⚔️', '🗝️', '🔮', '🧭', '⭐',
   '⚡', '🔥', '🌊', '🌈', '🌸', '🌻', '🌲', '🍀',
   '🎸', '🥁', '🎺', '🎹', '🎨', '🎯', '🏆', '🥇',
-  '💡', '🔔', '🕹️', '🧭', '⚓', '🧩', '🪐', '✨'
+  '💡', '🔔', '🕹️', '🎈', '🍦', '🧩', '🪐', '✨'
 ];
 
 /**
@@ -53,13 +53,29 @@ export function generateSafetyNumbers(
   }
   const numericCode = blocks.join(' ');
 
-  // 2. Select 4 distinct emojis
+  // 2. Select 4 strictly distinct emojis with rejection sampling
   const emojis: string[] = [];
-  for (let i = 0; i < 4; i++) {
-    const byte = hash[i * 4 + 7] ^ hash[i * 4 + 8];
-    const index = byte % EMOJI_ALPHABET.length;
-    emojis.push(EMOJI_ALPHABET[index]);
+  const selectedIndices = new Set<number>();
+  let attempt = 0;
+
+  while (emojis.length < 4 && attempt < 32) {
+    const byte = hash[(attempt * 3 + 7) % hash.length] ^ hash[(attempt * 5 + 13) % hash.length];
+    const index = (byte + attempt * 7) % EMOJI_ALPHABET.length;
+    if (!selectedIndices.has(index)) {
+      selectedIndices.add(index);
+      emojis.push(EMOJI_ALPHABET[index]);
+    }
+    attempt++;
   }
+
+  // Fallback if needed to guarantee 4 unique emojis
+  for (let i = 0; emojis.length < 4; i++) {
+    if (!selectedIndices.has(i)) {
+      selectedIndices.add(i);
+      emojis.push(EMOJI_ALPHABET[i]);
+    }
+  }
+
 
   // 3. Formatted hex fingerprint (32 bytes formatted in pairs)
   const hexFingerprint = hashHex.match(/.{1,4}/g)?.join(' ') ?? hashHex;

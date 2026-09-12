@@ -2,11 +2,13 @@ import { describe, it, expect } from 'vitest';
 import {
   generateEphemeralKeyPair,
   deriveSessionKeys,
+  deriveDirectionalSessionKeys,
   generateSafetyNumbers,
   FrameCipher,
   DataCipher,
   FRAME_MAGIC_BYTE
 } from '../src/index.js';
+
 
 describe('Aegis Cryptographic Engine', () => {
   it('should generate valid X25519 ephemeral keypairs', () => {
@@ -100,7 +102,7 @@ describe('Aegis Cryptographic Engine', () => {
     expect(decryptor.stats.droppedOrCorruptFrames).toBe(1);
   });
 
-  it('should encrypt and decrypt DataChannel messages', async () => {
+  it('should encrypt and decrypt DataChannel messages with AAD authentication', async () => {
     const roomId = 'room-chat-test';
     const alice = generateEphemeralKeyPair();
     const bob = generateEphemeralKeyPair();
@@ -115,5 +117,53 @@ describe('Aegis Cryptographic Engine', () => {
 
     const decryptedMessage = await bobChatCipher.decryptMessage(encryptedPayload);
     expect(decryptedMessage).toBe(originalMessage);
+
+    // Tamper with unauthenticated metadata -> should fail because of AAD binding
+    const tamperedFingerprint = { ...encryptedPayload, senderFingerprint: 'spoofed0' };
+    await expect(bobChatCipher.decryptMessage(tamperedFingerprint)).rejects.toThrow();
+
+    const tamperedTimestamp = { ...encryptedPayload, timestamp: encryptedPayload.timestamp + 1000 };
+    await expect(bobChatCipher.decryptMessage(tamperedTimestamp)).rejects.toThrow();
   });
+
+  it('should derive directional session keys eliminating AES-GCM nonce reuse', () => {
+    const roomId = 'room-directional-test';
+    const alice = generateEphemeralKeyPair();
+    const bob = generateEphemeralKeyPair();
+
+    const aliceKeys = deriveDirectionalSessionKeys(alice.privateKey, alice.publicKey, bob.publicKey, roomId);
+    const bobKeys = deriveDirectionalSessionKeys(bob.privateKey, bob.publicKey, alice.publicKey, roomId);
+
+    // Peer send keys must be different (nonce reuse eliminated!)
+    expect(aliceKeys.sendAudioKey).not.toEqual(bobKeys.sendAudioKey);
+    expect(aliceKeys.sendVideoKey).not.toEqual(bobKeys.sendVideoKey);
+    expect(aliceKeys.sendIvBase).not.toEqual(bobKeys.sendIvBase);
+
+    // Alice send matches Bob recv, and Bob send matches Alice recv
+    expect(aliceKeys.sendAudioKey).toEqual(bobKeys.recvAudioKey);
+    expect(bobKeys.sendAudioKey).toEqual(aliceKeys.recvAudioKey);
+    expect(aliceKeys.sendVideoKey).toEqual(bobKeys.recvVideoKey);
+    expect(bobKeys.sendVideoKey).toEqual(aliceKeys.recvVideoKey);
+    expect(aliceKeys.sendIvBase).toEqual(bobKeys.recvIvBase);
+    expect(bobKeys.sendIvBase).toEqual(aliceKeys.recvIvBase);
+
+    // Common SAS entropy
+    expect(aliceKeys.sasEntropy).toEqual(bobKeys.sasEntropy);
+  });
+
+  it('should always generate 4 strictly unique emojis in SAS verification', () => {
+    const roomId = 'room-sas-unique';
+    for (let i = 0; i < 20; i++) {
+      const alice = generateEphemeralKeyPair();
+      const bob = generateEphemeralKeyPair();
+      const aliceKeys = deriveSessionKeys(alice.privateKey, bob.publicKey, roomId);
+      const sas = generateSafetyNumbers(alice.publicKey, bob.publicKey, aliceKeys.sasEntropy);
+
+      expect(sas.emojis.length).toBe(4);
+      const unique = new Set(sas.emojis);
+      expect(unique.size).toBe(4); // Strictly distinct emojis!
+    }
+  });
+
 });
+

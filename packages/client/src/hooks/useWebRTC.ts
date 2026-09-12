@@ -1,7 +1,15 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import {
   generateEphemeralKeyPair,
+
   deriveSessionKeys,
+  deriveDirectionalSessionKeys,
+  DirectionalSessionKeys,
+  generateHybridKeyPair,
+  encapsulateHybrid,
+  decapsulateHybridDirectional,
+  deriveHybridDirectionalSessionKeys,
+  HybridKeyPair,
   generateSafetyNumbers,
   DataCipher,
   FileCipher,
@@ -13,7 +21,9 @@ import {
   FrameCipherStats,
   EncryptedMessagePayload,
   formatX25519DID,
+  hexToBytes,
 } from '@aegis/crypto';
+
 import { ReceivedFile } from '../components/FileDropModal.js';
 import { useAudioWorklet } from './useAudioWorklet.js';
 import { AdaptiveBitrateController, ABRTelemetry } from '../services/congestionController.js';
@@ -60,6 +70,26 @@ const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
   { urls: 'stun:stun2.l.google.com:19302' },
 ];
 
+const fetchIceServers = async (peerId: string): Promise<RTCIceServer[]> => {
+  try {
+    const res = await fetch(`http://localhost:4000/turn-credentials?peerId=${encodeURIComponent(peerId)}`);
+    if (res.ok) {
+      const creds = await res.json();
+      return [
+        { urls: creds.urls[0] }, // stun
+        {
+          urls: creds.urls.slice(1),
+          username: creds.username,
+          credential: creds.credential,
+        },
+      ];
+    }
+  } catch (e) {
+    console.warn('Could not fetch dynamic TURN credentials, falling back to STUN:', e);
+  }
+  return DEFAULT_ICE_SERVERS;
+};
+
 export function useWebRTC(roomId: string) {
   const [callState, setCallState] = useState<CallState>('lobby');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -71,6 +101,7 @@ export function useWebRTC(roomId: string) {
     toggleNoiseSuppression,
     isVadActive,
     estimatedNoiseFloorDb,
+    ensureAudioResumed,
   } = useAudioWorklet(rawLocalStream);
   const localStream = processedStream || rawLocalStream;
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
@@ -122,8 +153,10 @@ export function useWebRTC(roomId: string) {
   // Refs for WebRTC & Cryptography
   const peerIdRef = useRef<string>(`peer-${Math.random().toString(36).substring(2, 9)}`);
   const keyPairRef = useRef<KeyPair | null>(null);
+  const hybridKeyPairRef = useRef<HybridKeyPair | null>(null);
   const remotePublicKeyHexRef = useRef<string | null>(null);
   const sessionKeysRef = useRef<DerivedSessionKeys | null>(null);
+  const directionalKeysRef = useRef<DirectionalSessionKeys | null>(null);
   const dataCipherRef = useRef<DataCipher | null>(null);
   const fileCipherRef = useRef<FileCipher | null>(null);
 
@@ -132,6 +165,12 @@ export function useWebRTC(roomId: string) {
   const dataChannelRef = useRef<RTCDataChannel | null>(null);
   const workerRef = useRef<Worker | null>(null);
   const screenTrackRef = useRef<MediaStreamTrack | null>(null);
+
+  // Perfect Negotiation state refs
+  const makingOfferRef = useRef(false);
+  const ignoreOfferRef = useRef(false);
+  const politeRef = useRef(false);
+  const blobUrlsRef = useRef<string[]>([]);
 
   const statsIntervalRef = useRef<number | null>(null);
   const lastBytesRef = useRef<{ bytes: number; time: number }>({ bytes: 0, time: Date.now() });
@@ -147,11 +186,13 @@ export function useWebRTC(roomId: string) {
   // 1. Initialize KeyPair and Enumerate Media Devices
   useEffect(() => {
     keyPairRef.current = generateEphemeralKeyPair();
+    hybridKeyPairRef.current = generateHybridKeyPair();
     try {
       setLocalDid(formatX25519DID(keyPairRef.current.publicKey));
     } catch (e) {
       console.warn('Could not derive local DID:', e);
     }
+
 
     const fetchDevices = async () => {
       try {
@@ -172,8 +213,15 @@ export function useWebRTC(roomId: string) {
 
     return () => {
       navigator.mediaDevices?.removeEventListener?.('devicechange', fetchDevices);
+      blobUrlsRef.current.forEach((url) => {
+        try {
+          URL.revokeObjectURL(url);
+        } catch (_) {}
+      });
+      blobUrlsRef.current = [];
     };
   }, []);
+
 
   // 2. Setup Local Media Stream
   const initLocalMedia = useCallback(async () => {
@@ -316,6 +364,7 @@ export function useWebRTC(roomId: string) {
               const fullFile = fileCipherRef.current.verifyAndReassemble(sortedChunks, meta.sha256Checksum);
               const blob = new Blob([fullFile.buffer as ArrayBuffer], { type: meta.mimeType });
               const blobUrl = URL.createObjectURL(blob);
+              blobUrlsRef.current.push(blobUrl);
 
               setReceivedFiles((prev) => [
                 {
@@ -325,6 +374,7 @@ export function useWebRTC(roomId: string) {
                 },
                 ...prev,
               ]);
+
             } catch (checksumErr) {
               console.error('File integrity verification failed:', checksumErr);
             } finally {
@@ -344,12 +394,56 @@ export function useWebRTC(roomId: string) {
     };
   }, []);
 
+  const applyDirectionalKeys = useCallback(
+    (keys: DirectionalSessionKeys, peerPublicKeyBytes: Uint8Array, worker: Worker | null) => {
+      directionalKeysRef.current = keys;
+      sessionKeysRef.current = {
+        audioKey: keys.sendAudioKey,
+        videoKey: keys.sendVideoKey,
+        dataKey: keys.sendDataKey,
+        ivBase: keys.sendIvBase,
+        sasEntropy: keys.sasEntropy,
+      };
+
+      const sas = generateSafetyNumbers(
+        keyPairRef.current!.publicKey,
+        peerPublicKeyBytes,
+        keys.sasEntropy
+      );
+      setSafetyNumbers(sas);
+
+      dataCipherRef.current = new DataCipher(
+        keys.sendDataKey,
+        keyPairRef.current!.publicKeyHex.slice(0, 8)
+      );
+      fileCipherRef.current = new FileCipher(keys.sendDataKey);
+
+      const targetWorker = worker || workerRef.current;
+      if (targetWorker) {
+        targetWorker.postMessage({
+          type: 'init-ciphers',
+          sendAudioKey: Array.from(keys.sendAudioKey),
+          recvAudioKey: Array.from(keys.recvAudioKey),
+          sendVideoKey: Array.from(keys.sendVideoKey),
+          recvVideoKey: Array.from(keys.recvVideoKey),
+          sendIvBase: Array.from(keys.sendIvBase),
+          recvIvBase: Array.from(keys.recvIvBase),
+        });
+      }
+    },
+    []
+  );
+
   // 5. Setup WebRTC PeerConnection
-  const createPeerConnection = useCallback((worker: Worker | null, isInitiator: boolean) => {
+  const createPeerConnection = useCallback(async (worker: Worker | null, isInitiator: boolean) => {
+    if (pcRef.current) pcRef.current.close();
+
+    const iceServers = await fetchIceServers(peerIdRef.current);
     const pc = new RTCPeerConnection({
-      iceServers: DEFAULT_ICE_SERVERS,
+      iceServers,
     });
     pcRef.current = pc;
+
 
     if (localStream) {
       localStream.getTracks().forEach((track) => {
@@ -431,6 +525,11 @@ export function useWebRTC(roomId: string) {
       }
     }
 
+    try {
+      await ensureAudioResumed();
+    } catch (_) {}
+
+
     const worker = initWorker();
 
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -465,7 +564,7 @@ export function useWebRTC(roomId: string) {
 
           case 'joined': {
             const isInitiator = msg.isInitiator;
-            const pc = createPeerConnection(worker, isInitiator);
+            await createPeerConnection(worker, isInitiator);
 
             ws.send(
               JSON.stringify({
@@ -474,6 +573,7 @@ export function useWebRTC(roomId: string) {
                 data: {
                   type: 'key-exchange',
                   publicKeyHex: keyPairRef.current!.publicKeyHex,
+                  hybridPublicKeyHex: hybridKeyPairRef.current?.publicKeyHex,
                 },
               })
             );
@@ -488,6 +588,7 @@ export function useWebRTC(roomId: string) {
                 data: {
                   type: 'key-exchange',
                   publicKeyHex: keyPairRef.current!.publicKeyHex,
+                  hybridPublicKeyHex: hybridKeyPairRef.current?.publicKeyHex,
                 },
               })
             );
@@ -499,6 +600,9 @@ export function useWebRTC(roomId: string) {
             const senderPeerId = msg.senderPeerId;
             const pc = pcRef.current;
 
+            const isPolite = peerIdRef.current.localeCompare(senderPeerId) > 0;
+            politeRef.current = isPolite;
+
             if (signalData.type === 'key-exchange') {
               remotePublicKeyHexRef.current = signalData.publicKeyHex;
               try {
@@ -508,48 +612,95 @@ export function useWebRTC(roomId: string) {
               }
 
               const peerPublicKeyBytes = hexToBytes(signalData.publicKeyHex);
-              const derivedKeys = deriveSessionKeys(
-                keyPairRef.current!.privateKey,
+
+              // 1. Post-Quantum Hybrid or Classical Directional Key Exchange
+              if (signalData.hybridPublicKeyHex && hybridKeyPairRef.current) {
+                if (isPolite) {
+                  // Polite peer encapsulates hybrid shared secret
+                  const encap = encapsulateHybrid(signalData.hybridPublicKeyHex, roomId);
+                  const dirKeys = deriveHybridDirectionalSessionKeys(
+                    encap.sharedSecret,
+                    hybridKeyPairRef.current.publicKey,
+                    hexToBytes(signalData.hybridPublicKeyHex),
+                    roomId
+                  );
+                  applyDirectionalKeys(dirKeys, peerPublicKeyBytes, worker);
+
+                  ws.send(
+                    JSON.stringify({
+                      type: 'signal',
+                      targetPeerId: senderPeerId,
+                      data: {
+                        type: 'pqc-encap',
+                        cipherTextHex: encap.cipherTextHex,
+                      },
+                    })
+                  );
+                } else {
+                  // Impolite peer derives directional baseline until pqc-encap is received
+                  const dirKeys = deriveDirectionalSessionKeys(
+                    keyPairRef.current!.privateKey,
+                    keyPairRef.current!.publicKey,
+                    peerPublicKeyBytes,
+                    roomId
+                  );
+                  applyDirectionalKeys(dirKeys, peerPublicKeyBytes, worker);
+                }
+              } else {
+                // Classical X25519 directional keys
+                const dirKeys = deriveDirectionalSessionKeys(
+                  keyPairRef.current!.privateKey,
+                  keyPairRef.current!.publicKey,
+                  peerPublicKeyBytes,
+                  roomId
+                );
+                applyDirectionalKeys(dirKeys, peerPublicKeyBytes, worker);
+              }
+
+              // W3C Perfect Negotiation: impolite peer creates the offer
+              if (!isPolite && pc && pc.signalingState === 'stable') {
+                try {
+                  makingOfferRef.current = true;
+                  const offer = await pc.createOffer();
+                  if (pc.signalingState === 'stable') {
+                    await pc.setLocalDescription(offer);
+                    ws.send(
+                      JSON.stringify({
+                        type: 'signal',
+                        targetPeerId: senderPeerId,
+                        data: { type: 'offer', sdp: offer },
+                      })
+                    );
+                  }
+                } finally {
+                  makingOfferRef.current = false;
+                }
+              }
+            } else if (signalData.type === 'pqc-encap' && hybridKeyPairRef.current) {
+              // Impolite peer decapsulates hybrid shared secret
+              const peerPublicKeyBytes = hexToBytes(remotePublicKeyHexRef.current!);
+              const dirKeys = decapsulateHybridDirectional(
+                signalData.cipherTextHex,
+                hybridKeyPairRef.current.secretKey,
+                hybridKeyPairRef.current.publicKey,
                 peerPublicKeyBytes,
                 roomId
               );
-              sessionKeysRef.current = derivedKeys;
-
-              const sas = generateSafetyNumbers(
-                keyPairRef.current!.publicKey,
-                peerPublicKeyBytes,
-                derivedKeys.sasEntropy
-              );
-              setSafetyNumbers(sas);
-
-              dataCipherRef.current = new DataCipher(
-                derivedKeys.dataKey,
-                keyPairRef.current!.publicKeyHex.slice(0, 8)
-              );
-
-              fileCipherRef.current = new FileCipher(derivedKeys.dataKey);
-
-              if (worker) {
-                worker.postMessage({
-                  type: 'init-ciphers',
-                  audioKey: Array.from(derivedKeys.audioKey),
-                  videoKey: Array.from(derivedKeys.videoKey),
-                  ivBase: Array.from(derivedKeys.ivBase),
-                });
-              }
-
-              if (pc && pc.signalingState === 'stable') {
-                const offer = await pc.createOffer();
-                await pc.setLocalDescription(offer);
-                ws.send(
-                  JSON.stringify({
-                    type: 'signal',
-                    targetPeerId: senderPeerId,
-                    data: { type: 'offer', sdp: offer },
-                  })
-                );
-              }
+              applyDirectionalKeys(dirKeys, peerPublicKeyBytes, worker);
             } else if (signalData.type === 'offer' && pc) {
+              // Perfect Negotiation handling for offer
+              const offerCollision = makingOfferRef.current || pc.signalingState !== 'stable';
+              ignoreOfferRef.current = !isPolite && offerCollision;
+
+              if (ignoreOfferRef.current) {
+                console.warn('Impolite peer ignoring offer collision');
+                return;
+              }
+
+              if (offerCollision) {
+                await pc.setLocalDescription({ type: 'rollback' });
+              }
+
               await pc.setRemoteDescription(new RTCSessionDescription(signalData.sdp));
               const answer = await pc.createAnswer();
               await pc.setLocalDescription(answer);
@@ -561,16 +712,21 @@ export function useWebRTC(roomId: string) {
                 })
               );
             } else if (signalData.type === 'answer' && pc) {
-              await pc.setRemoteDescription(new RTCSessionDescription(signalData.sdp));
+              if (pc.signalingState === 'have-local-offer') {
+                await pc.setRemoteDescription(new RTCSessionDescription(signalData.sdp));
+              }
             } else if (signalData.type === 'ice-candidate' && pc) {
               try {
                 await pc.addIceCandidate(new RTCIceCandidate(signalData.candidate));
               } catch (e) {
-                console.warn('Error adding ICE candidate:', e);
+                if (!ignoreOfferRef.current) {
+                  console.warn('Error adding ICE candidate:', e);
+                }
               }
             }
             break;
           }
+
 
           case 'peer-left': {
             setRemoteStream(null);
@@ -853,8 +1009,17 @@ export function useWebRTC(roomId: string) {
     if (localStream) localStream.getTracks().forEach((t) => t.stop());
     if (screenTrackRef.current) screenTrackRef.current.stop();
 
+    // Revoke object URLs to eliminate memory leak
+    blobUrlsRef.current.forEach((url) => {
+      try {
+        URL.revokeObjectURL(url);
+      } catch (_) {}
+    });
+    blobUrlsRef.current = [];
+
     setCallState('ended');
   };
+
 
   const setSimulcastTier = useCallback((tier: 'auto' | 'high' | 'medium' | 'low') => {
     setSimulcastTierState(tier);
@@ -927,10 +1092,3 @@ export function useWebRTC(roomId: string) {
   };
 }
 
-function hexToBytes(hex: string): Uint8Array {
-  const bytes = new Uint8Array(hex.length / 2);
-  for (let i = 0; i < bytes.length; i++) {
-    bytes[i] = parseInt(hex.substring(i * 2, i * 2 + 2), 16);
-  }
-  return bytes;
-}
