@@ -30,6 +30,9 @@ interface CallRoomProps {
   unreadChatCount: number;
   isNoiseSuppressionEnabled?: boolean;
   onToggleNoiseSuppression?: () => void;
+  isVadActive?: boolean;
+  estimatedNoiseFloorDb?: number;
+  simulcastTier?: 'auto' | 'high' | 'medium' | 'low';
   onToggleAudio: () => void;
   onToggleVideo: () => void;
   onToggleScreenShare: () => void;
@@ -52,6 +55,9 @@ export const CallRoom: React.FC<CallRoomProps> = ({
   unreadChatCount,
   isNoiseSuppressionEnabled = true,
   onToggleNoiseSuppression,
+  isVadActive = false,
+  estimatedNoiseFloorDb,
+  simulcastTier = 'auto',
   onToggleAudio,
   onToggleVideo,
   onToggleScreenShare,
@@ -168,9 +174,16 @@ export const CallRoom: React.FC<CallRoomProps> = ({
         )}
 
         {/* Top Right Zero-Trust SFU Relay Indicator */}
-        <div className="absolute top-4 right-4 flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-dark-900/80 backdrop-blur-md border border-dark-750 text-[11px] font-mono text-slate-300 pointer-events-none">
-          <span className="w-2 h-2 rounded-full bg-cyber-emerald animate-pulse" />
-          <span>Zero-Trust SFU • SFrame • ML-KEM-768</span>
+        <div className="absolute top-4 right-4 flex items-center gap-2">
+          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-dark-900/80 backdrop-blur-md border border-dark-750 text-[11px] font-mono text-slate-300 pointer-events-none">
+            <span className="w-2 h-2 rounded-full bg-cyber-emerald animate-pulse" />
+            <span>Zero-Trust SFU • SFrame • ML-KEM-768</span>
+          </div>
+          {simulcastTier && (
+            <div className="px-2.5 py-1.5 rounded-xl bg-dark-900/80 backdrop-blur-md border border-cyber-cyan/30 text-[10px] font-mono text-cyber-cyan uppercase">
+              {simulcastTier === 'auto' ? 'Simulcast: Auto' : `Simulcast: ${simulcastTier}`}
+            </div>
+          )}
         </div>
 
         {/* Remote Peer Status Overlay */}
@@ -229,11 +242,21 @@ export const CallRoom: React.FC<CallRoomProps> = ({
               <CameraOff className="w-5 h-5 text-slate-400" aria-hidden="true" />
             </div>
           )}
-          <div className="absolute bottom-2 left-2 flex items-center gap-1.5 bg-dark-950/80 backdrop-blur-md px-2 py-0.5 rounded-md text-[10px] text-slate-300 font-mono">
-            <span>You</span>
-            {isAudioMuted && <MicOff className="w-3 h-3 text-cyber-rose" aria-hidden="true" />}
-            {localVolume > 15 && !isAudioMuted && (
-              <span className="w-1.5 h-1.5 rounded-full bg-cyber-emerald animate-pulse" />
+          <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between bg-dark-950/85 backdrop-blur-md px-2 py-0.5 rounded-md text-[10px] text-slate-300 font-mono">
+            <div className="flex items-center gap-1.5">
+              <span>You</span>
+              {isAudioMuted && <MicOff className="w-3 h-3 text-cyber-rose" aria-hidden="true" />}
+              {isVadActive && !isAudioMuted && (
+                <span className="flex items-center gap-1 text-[9px] text-cyber-emerald">
+                  <span className="w-1.5 h-1.5 rounded-full bg-cyber-emerald animate-ping" />
+                  VAD
+                </span>
+              )}
+            </div>
+            {estimatedNoiseFloorDb !== undefined && !isAudioMuted && (
+              <span className="text-[9px] text-slate-400 font-mono">
+                {estimatedNoiseFloorDb} dB
+              </span>
             )}
           </div>
         </aside>

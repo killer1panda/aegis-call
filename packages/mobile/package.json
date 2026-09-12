@@ -1,0 +1,22 @@
+{
+  "name": "@aegis/mobile",
+  "version": "1.0.0",
+  "description": "AegisCall Native Mobile Packaging (Capacitor iOS & Android with CallKit / ConnectionService)",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "cap:sync": "cap sync",
+    "cap:open:ios": "cap open ios",
+    "cap:open:android": "cap open android"
+  },
+  "dependencies": {
+    "@capacitor/core": "^6.2.0"
+  },
+  "devDependencies": {
+    "@capacitor/android": "^6.2.0",
+    "@capacitor/cli": "^6.2.0",
+    "@capacitor/ios": "^6.2.0",
+    "typescript": "^5.7.3"
+  }
+}

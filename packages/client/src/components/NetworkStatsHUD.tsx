@@ -1,5 +1,5 @@
 import React from 'react';
-import { Activity, Cpu, Shield, Wifi, X, CheckCircle2 } from 'lucide-react';
+import { Activity, Cpu, Shield, Wifi, X, CheckCircle2, Layers } from 'lucide-react';
 import { NetworkStats } from '../hooks/useWebRTC.js';
 import { FrameCipherStats } from '@aegis/crypto';
 
@@ -8,6 +8,8 @@ interface NetworkStatsHUDProps {
   onClose: () => void;
   networkStats: NetworkStats;
   cryptoStats: { audio?: FrameCipherStats; video?: FrameCipherStats };
+  simulcastTier?: 'auto' | 'high' | 'medium' | 'low';
+  onSetSimulcastTier?: (tier: 'auto' | 'high' | 'medium' | 'low') => void;
 }
 
 export const NetworkStatsHUD: React.FC<NetworkStatsHUDProps> = ({
@@ -15,6 +17,8 @@ export const NetworkStatsHUD: React.FC<NetworkStatsHUDProps> = ({
   onClose,
   networkStats,
   cryptoStats,
+  simulcastTier = 'auto',
+  onSetSimulcastTier,
 }) => {
   if (!isOpen) return null;
 
@@ -143,6 +147,42 @@ export const NetworkStatsHUD: React.FC<NetworkStatsHUDProps> = ({
             <span className="px-2 py-0.5 rounded bg-cyber-purple/15 text-cyber-purple border border-cyber-purple/30 font-semibold">
               {networkStats.candidateType}
             </span>
+          </div>
+        </div>
+
+        {/* Blind SFU Encrypted Simulcast Controls */}
+        <div>
+          <div className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">
+            <Layers className="w-3.5 h-3.5 text-cyber-cyan" />
+            <span>Blind SFU Encrypted Simulcast</span>
+          </div>
+
+          <div className="p-3 rounded-xl bg-dark-950/70 border border-dark-800 space-y-2.5">
+            <div className="flex items-center justify-between text-[11px]">
+              <span className="text-slate-400">Target Layer:</span>
+              <span className="text-cyber-cyan font-bold uppercase">{simulcastTier}</span>
+            </div>
+
+            {onSetSimulcastTier && (
+              <div className="grid grid-cols-4 gap-1.5 pt-1">
+                {(['auto', 'high', 'medium', 'low'] as const).map((tier) => (
+                  <button
+                    key={tier}
+                    onClick={() => onSetSimulcastTier(tier)}
+                    className={`py-1 px-1.5 rounded-lg text-[10px] font-mono uppercase transition-all ${
+                      simulcastTier === tier
+                        ? 'bg-cyber-cyan text-dark-950 font-bold shadow-sm'
+                        : 'bg-dark-850 hover:bg-dark-800 text-slate-400 border border-dark-750'
+                    }`}
+                  >
+                    {tier}
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className="text-[10px] text-slate-400 leading-tight pt-1">
+              SFU blindly filters encrypted spatial frames based on downstream tier without payload decryption.
+            </div>
           </div>
         </div>
       </div>

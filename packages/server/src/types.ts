@@ -11,7 +11,8 @@ export type ClientMessage =
   | { type: 'join'; roomId: string; peerId: string }
   | { type: 'signal'; targetPeerId: string; data: SignalPayload }
   | { type: 'leave'; roomId: string }
-  | { type: 'ping' };
+  | { type: 'ping' }
+  | { type: 'sfu-set-tier'; roomId: string; peerId: string; producerId: string; preferredTier: 'high' | 'medium' | 'low' };
 
 export type ServerMessage =
   | { type: 'joined'; roomId: string; peerId: string; peersInRoom: string[]; isInitiator: boolean }

@@ -12,6 +12,7 @@ import {
   SASVerification,
   FrameCipherStats,
   EncryptedMessagePayload,
+  formatX25519DID,
 } from '@aegis/crypto';
 import { ReceivedFile } from '../components/FileDropModal.js';
 import { useAudioWorklet } from './useAudioWorklet.js';
@@ -63,9 +64,19 @@ export function useWebRTC(roomId: string) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const [rawLocalStream, setRawLocalStream] = useState<MediaStream | null>(null);
-  const { processedStream, isNoiseSuppressionEnabled, toggleNoiseSuppression } = useAudioWorklet(rawLocalStream);
+  const {
+    processedStream,
+    isNoiseSuppressionEnabled,
+    toggleNoiseSuppression,
+    isVadActive,
+    estimatedNoiseFloorDb,
+  } = useAudioWorklet(rawLocalStream);
   const localStream = processedStream || rawLocalStream;
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+
+  const [localDid, setLocalDid] = useState<string | null>(null);
+  const [remoteDid, setRemoteDid] = useState<string | null>(null);
+  const [simulcastTier, setSimulcastTierState] = useState<'auto' | 'high' | 'medium' | 'low'>('auto');
 
   const [isAudioMuted, setIsAudioMuted] = useState(false);
   const [isVideoMuted, setIsVideoMuted] = useState(false);
@@ -132,6 +143,11 @@ export function useWebRTC(roomId: string) {
   // 1. Initialize KeyPair and Enumerate Media Devices
   useEffect(() => {
     keyPairRef.current = generateEphemeralKeyPair();
+    try {
+      setLocalDid(formatX25519DID(keyPairRef.current.publicKey));
+    } catch (e) {
+      console.warn('Could not derive local DID:', e);
+    }
 
     const fetchDevices = async () => {
       try {
@@ -481,6 +497,11 @@ export function useWebRTC(roomId: string) {
 
             if (signalData.type === 'key-exchange') {
               remotePublicKeyHexRef.current = signalData.publicKeyHex;
+              try {
+                setRemoteDid(formatX25519DID(hexToBytes(signalData.publicKeyHex)));
+              } catch (e) {
+                console.warn('Could not derive remote DID:', e);
+              }
 
               const peerPublicKeyBytes = hexToBytes(signalData.publicKeyHex);
               const derivedKeys = deriveSessionKeys(
@@ -806,6 +827,21 @@ export function useWebRTC(roomId: string) {
     setCallState('ended');
   };
 
+  const setSimulcastTier = useCallback((tier: 'auto' | 'high' | 'medium' | 'low') => {
+    setSimulcastTierState(tier);
+    if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+      socketRef.current.send(
+        JSON.stringify({
+          type: 'sfu-set-tier',
+          roomId,
+          peerId: peerIdRef.current,
+          producerId: 'video',
+          preferredTier: tier === 'auto' ? 'high' : tier,
+        })
+      );
+    }
+  }, [roomId]);
+
   const clearUnreadChat = () => setUnreadChatCount(0);
 
   return {
@@ -819,6 +855,12 @@ export function useWebRTC(roomId: string) {
     safetyNumbers,
     isSelfVerified,
     isPeerVerified,
+    localDid,
+    remoteDid,
+    isVadActive,
+    estimatedNoiseFloorDb,
+    simulcastTier,
+    setSimulcastTier,
     messages,
     unreadChatCount,
     networkStats,

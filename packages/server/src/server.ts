@@ -6,6 +6,7 @@ import { RoomManager } from './roomManager.js';
 import { ClientMessage, ServerMessage } from './types.js';
 
 import { generateEphemeralTurnCredentials } from './turnCredentials.js';
+import { sfuRelayRouter } from './sfuRelay.js';
 
 export function createServer(): FastifyInstance {
   const server = Fastify({
@@ -62,6 +63,8 @@ export function createServer(): FastifyInstance {
                 return;
               }
 
+              sfuRelayRouter.joinRoom(message.roomId, message.peerId, socket);
+
               const response: ServerMessage = {
                 type: 'joined',
                 roomId: message.roomId,
@@ -78,7 +81,18 @@ export function createServer(): FastifyInstance {
               break;
             }
 
+            case 'sfu-set-tier': {
+              sfuRelayRouter.setConsumerTier(
+                message.roomId,
+                message.peerId,
+                message.producerId,
+                message.preferredTier
+              );
+              break;
+            }
+
             case 'leave': {
+              sfuRelayRouter.removePeer(socket);
               roomManager.handleDisconnect(socket);
               break;
             }
@@ -99,10 +113,12 @@ export function createServer(): FastifyInstance {
       });
 
       socket.on('close', () => {
+        sfuRelayRouter.removePeer(socket);
         roomManager.handleDisconnect(socket);
       });
 
       socket.on('error', () => {
+        sfuRelayRouter.removePeer(socket);
         roomManager.handleDisconnect(socket);
       });
     });

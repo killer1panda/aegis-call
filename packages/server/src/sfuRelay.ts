@@ -280,3 +280,5 @@ export class SfuRelay {
     }
   }
 }
+
+export const sfuRelayRouter = new SfuRelay();

@@ -32,6 +32,12 @@ export function App() {
     safetyNumbers,
     isSelfVerified,
     isPeerVerified,
+    localDid,
+    remoteDid,
+    isVadActive,
+    estimatedNoiseFloorDb,
+    simulcastTier,
+    setSimulcastTier,
     messages,
     unreadChatCount,
     networkStats,
@@ -154,6 +160,9 @@ export function App() {
             unreadChatCount={unreadChatCount}
             isNoiseSuppressionEnabled={isNoiseSuppressionEnabled}
             onToggleNoiseSuppression={toggleNoiseSuppression}
+            isVadActive={isVadActive}
+            estimatedNoiseFloorDb={estimatedNoiseFloorDb}
+            simulcastTier={simulcastTier}
             onToggleAudio={toggleAudio}
             onToggleVideo={toggleVideo}
             onToggleScreenShare={toggleScreenShare}
@@ -176,6 +185,8 @@ export function App() {
         isPeerVerified={isPeerVerified}
         onMarkVerified={markVerified}
         roomId={roomId}
+        localDid={localDid}
+        remoteDid={remoteDid}
       />
 
       {/* Real-time Diagnostics HUD */}
@@ -184,6 +195,8 @@ export function App() {
         onClose={() => setIsHUDOpen(false)}
         networkStats={networkStats}
         cryptoStats={cryptoStats}
+        simulcastTier={simulcastTier}
+        onSetSimulcastTier={setSimulcastTier}
       />
 
       {/* End-to-End Encrypted DataChannel Chat Drawer */}
