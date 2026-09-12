@@ -9,6 +9,8 @@ class NoiseGateProcessor extends AudioWorkletProcessor {
       { name: 'release', defaultValue: 0.08, minValue: 0.01, maxValue: 0.5 },
       { name: 'enabled', defaultValue: 1, minValue: 0, maxValue: 1 },
       { name: 'filterMode', defaultValue: 2, minValue: 0, maxValue: 2 }, // 0: bypass, 1: soft-knee, 2: spectral
+      { name: 'voiceMaskEnabled', defaultValue: 0, minValue: 0, maxValue: 1 },
+      { name: 'pitchShiftRatio', defaultValue: 0.82, minValue: 0.5, maxValue: 1.5 },
     ];
   }
 
@@ -30,6 +32,14 @@ class NoiseGateProcessor extends AudioWorkletProcessor {
     this.highFreqEnergyAccum = 0.0;
     this.totalEnergyAccum = 0.0;
     this.authenticityScore = 98.0; // Baseline 98%
+
+    // Acoustic Mask circular pitch buffer
+    this.pitchBufferSize = 4096;
+    this.pitchWindowSize = 2048;
+    this.pitchBuffer = new Float32Array(this.pitchBufferSize);
+    this.pitchWritePtr = 0;
+    this.pitchOffset1 = 0.0;
+    this.pitchOffset2 = this.pitchWindowSize / 2;
   }
 
   process(inputs, outputs, parameters) {
@@ -43,6 +53,8 @@ class NoiseGateProcessor extends AudioWorkletProcessor {
     const release = parameters.release[0];
     const isEnabled = parameters.enabled[0] > 0.5;
     const mode = Math.round(parameters.filterMode[0]);
+    const voiceMask = parameters.voiceMaskEnabled ? parameters.voiceMaskEnabled[0] > 0.5 : false;
+    const pitchRatio = parameters.pitchShiftRatio ? parameters.pitchShiftRatio[0] : 0.82;
 
     for (let channel = 0; channel < input.length; channel++) {
       const inputChannel = input[channel];
@@ -115,7 +127,28 @@ class NoiseGateProcessor extends AudioWorkletProcessor {
         }
 
         this.gain += (targetGain - this.gain) * 0.15;
-        outputChannel[i] = sample * this.gain;
+        let s = sample * this.gain;
+
+        if (voiceMask) {
+          this.pitchBuffer[this.pitchWritePtr] = s;
+
+          const r1 = (this.pitchWritePtr - Math.floor(this.pitchOffset1) + this.pitchBufferSize) % this.pitchBufferSize;
+          const r2 = (this.pitchWritePtr - Math.floor(this.pitchOffset2) + this.pitchBufferSize) % this.pitchBufferSize;
+
+          const halfWin = this.pitchWindowSize / 2;
+          const w1 = 1.0 - Math.abs(this.pitchOffset1 - halfWin) / halfWin;
+          const w2 = 1.0 - w1;
+
+          s = w1 * this.pitchBuffer[r1] + w2 * this.pitchBuffer[r2];
+
+          const delta = 1.0 - pitchRatio;
+          this.pitchOffset1 = (this.pitchOffset1 + delta + this.pitchWindowSize) % this.pitchWindowSize;
+          this.pitchOffset2 = (this.pitchOffset2 + delta + this.pitchWindowSize) % this.pitchWindowSize;
+
+          this.pitchWritePtr = (this.pitchWritePtr + 1) % this.pitchBufferSize;
+        }
+
+        outputChannel[i] = s;
       }
     }
 
@@ -176,6 +209,7 @@ registerProcessor('noise-gate-processor', NoiseGateProcessor);
 
 export function useAudioWorklet(rawStream: MediaStream | null) {
   const [isNoiseSuppressionEnabled, setIsNoiseSuppressionEnabled] = useState(true);
+  const [isVoiceMaskEnabled, setIsVoiceMaskEnabled] = useState(false);
   const [isVadActive, setIsVadActive] = useState(false);
   const [estimatedNoiseFloorDb, setEstimatedNoiseFloorDb] = useState(-48);
   const [acousticAuthenticityScore, setAcousticAuthenticityScore] = useState(98);
@@ -298,10 +332,23 @@ export function useAudioWorklet(rawStream: MediaStream | null) {
     });
   }, []);
 
+  const toggleVoiceMask = useCallback(() => {
+    setIsVoiceMaskEnabled((prev) => {
+      const next = !prev;
+      if (workletNodeRef.current) {
+        const param = workletNodeRef.current.parameters.get('voiceMaskEnabled');
+        if (param) param.setValueAtTime(next ? 1 : 0, audioContextRef.current?.currentTime || 0);
+      }
+      return next;
+    });
+  }, []);
+
   return {
     processedStream: processedStream || rawStream,
     isNoiseSuppressionEnabled,
     toggleNoiseSuppression,
+    isVoiceMaskEnabled,
+    toggleVoiceMask,
     isVadActive,
     estimatedNoiseFloorDb,
     acousticAuthenticityScore,

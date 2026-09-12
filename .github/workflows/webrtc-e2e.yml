@@ -1,0 +1,74 @@
+name: 'WebRTC E2E & Cryptographic Pipeline'
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  crypto-and-integration-tests:
+    name: 'Unit & Integration Test Suites'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Install Monorepo Dependencies
+        run: npm ci
+
+      - name: Build Cryptographic Library
+        run: npm --workspace=@aegis/crypto run build
+
+      - name: Run Cryptographic Unit Tests (@aegis/crypto)
+        run: npm --workspace=@aegis/crypto test
+
+      - name: Build Signaling Server
+        run: npm --workspace=@aegis/server run build
+
+      - name: Run Signaling & SFU Relay Integration Tests (@aegis/server)
+        run: npm --workspace=@aegis/server test
+
+  playwright-webrtc-e2e:
+    name: 'Dual-Browser WebRTC E2E Automation'
+    needs: crypto-and-integration-tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Install Monorepo Dependencies
+        run: npm ci
+
+      - name: Build Packages (@aegis/crypto, @aegis/mobile, @aegis/server)
+        run: |
+          npm --workspace=@aegis/crypto run build
+          npm --workspace=@aegis/mobile run build
+          npm --workspace=@aegis/server run build
+
+      - name: Install Playwright Chromium & Dependencies
+        run: npx playwright install --with-deps chromium
+
+      - name: Run Playwright WebRTC E2E Tests
+        run: npm --workspace=@aegis/client run test:e2e
+
+      - name: Upload Playwright Report on Failure
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: packages/client/playwright-report/
+          retention-days: 14

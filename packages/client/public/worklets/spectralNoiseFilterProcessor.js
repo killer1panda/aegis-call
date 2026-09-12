@@ -10,6 +10,8 @@ class SpectralNoiseFilterProcessor extends AudioWorkletProcessor {
       { name: 'noiseFloorDecibels', defaultValue: -45, minValue: -80, maxValue: -10 },
       { name: 'spectralAggression', defaultValue: 1.5, minValue: 1.0, maxValue: 3.0 },
       { name: 'vadThreshold', defaultValue: 0.02, minValue: 0.001, maxValue: 0.1 },
+      { name: 'voiceMaskEnabled', defaultValue: 0, minValue: 0, maxValue: 1 },
+      { name: 'pitchShiftRatio', defaultValue: 0.82, minValue: 0.5, maxValue: 1.5 },
     ];
   }
 
@@ -31,6 +33,14 @@ class SpectralNoiseFilterProcessor extends AudioWorkletProcessor {
     this.highFreqEnergyAccum = 0.0;
     this.totalEnergyAccum = 0.0;
     this.authenticityScore = 98.0; // Baseline 98%
+
+    // Acoustic Mask / Voice Anonymizer circular pitch-shift state
+    this.pitchBufferSize = 4096;
+    this.pitchWindowSize = 2048;
+    this.pitchBuffer = new Float32Array(this.pitchBufferSize);
+    this.pitchWritePtr = 0;
+    this.pitchOffset1 = 0.0;
+    this.pitchOffset2 = this.pitchWindowSize / 2;
   }
 
   process(inputs, outputs, parameters) {
@@ -42,6 +52,8 @@ class SpectralNoiseFilterProcessor extends AudioWorkletProcessor {
     const mode = Math.round(parameters.filterMode[0]);
     const aggression = parameters.spectralAggression[0];
     const vadThreshold = parameters.vadThreshold[0];
+    const voiceMask = parameters.voiceMaskEnabled ? parameters.voiceMaskEnabled[0] > 0.5 : false;
+    const pitchRatio = parameters.pitchShiftRatio ? parameters.pitchShiftRatio[0] : 0.82;
 
     for (let ch = 0; ch < input.length; ch++) {
       const inChannel = input[ch];
@@ -111,7 +123,28 @@ class SpectralNoiseFilterProcessor extends AudioWorkletProcessor {
         }
 
         for (let i = 0; i < inChannel.length; i++) {
-          outChannel[i] = inChannel[i] * attenuation;
+          let s = inChannel[i] * attenuation;
+
+          if (voiceMask) {
+            this.pitchBuffer[this.pitchWritePtr] = s;
+
+            const r1 = (this.pitchWritePtr - Math.floor(this.pitchOffset1) + this.pitchBufferSize) % this.pitchBufferSize;
+            const r2 = (this.pitchWritePtr - Math.floor(this.pitchOffset2) + this.pitchBufferSize) % this.pitchBufferSize;
+
+            const halfWin = this.pitchWindowSize / 2;
+            const w1 = 1.0 - Math.abs(this.pitchOffset1 - halfWin) / halfWin;
+            const w2 = 1.0 - w1;
+
+            s = w1 * this.pitchBuffer[r1] + w2 * this.pitchBuffer[r2];
+
+            const delta = 1.0 - pitchRatio;
+            this.pitchOffset1 = (this.pitchOffset1 + delta + this.pitchWindowSize) % this.pitchWindowSize;
+            this.pitchOffset2 = (this.pitchOffset2 + delta + this.pitchWindowSize) % this.pitchWindowSize;
+
+            this.pitchWritePtr = (this.pitchWritePtr + 1) % this.pitchBufferSize;
+          }
+
+          outChannel[i] = s;
         }
       }
     }

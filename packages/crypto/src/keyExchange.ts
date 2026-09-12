@@ -20,6 +20,13 @@ export function generateEphemeralKeyPair(): KeyPair {
 }
 
 /**
+ * Computes raw X25519 ECDH shared secret.
+ */
+export function deriveSharedSecret(ourPrivateKey: Uint8Array, peerPublicKey: Uint8Array): Uint8Array {
+  return x25519.getSharedSecret(ourPrivateKey, peerPublicKey);
+}
+
+/**
  * Computes an ECDH shared secret and derives directional session keys for initiator and responder
  * using HKDF-SHA256, eliminating AES-GCM nonce collision (CWE-323).
  *

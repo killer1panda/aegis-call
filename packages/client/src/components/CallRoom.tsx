@@ -18,6 +18,10 @@ import {
   Sparkles,
   Disc,
   CheckCircle2,
+  VenetianMask,
+  Palette,
+  FileCode,
+  KeyRound,
 } from 'lucide-react';
 import { useAudioVisualizer } from '../hooks/useAudioVisualizer.js';
 import { IdentityService } from '../services/identityService.js';
@@ -33,6 +37,11 @@ interface CallRoomProps {
   unreadChatCount: number;
   isNoiseSuppressionEnabled?: boolean;
   onToggleNoiseSuppression?: () => void;
+  isVoiceMaskEnabled?: boolean;
+  onToggleVoiceMask?: () => void;
+  onOpenWhiteboard?: () => void;
+  onOpenScratchpad?: () => void;
+  onOpenDuress?: () => void;
   isVadActive?: boolean;
   estimatedNoiseFloorDb?: number;
   acousticAuthenticityScore?: number;
@@ -61,6 +70,11 @@ export const CallRoom: React.FC<CallRoomProps> = ({
   unreadChatCount,
   isNoiseSuppressionEnabled = true,
   onToggleNoiseSuppression,
+  isVoiceMaskEnabled = false,
+  onToggleVoiceMask,
+  onOpenWhiteboard,
+  onOpenScratchpad,
+  onOpenDuress,
   isVadActive = false,
   estimatedNoiseFloorDb,
   acousticAuthenticityScore,
@@ -487,6 +501,22 @@ export const CallRoom: React.FC<CallRoomProps> = ({
           </button>
         )}
 
+        {/* Real-Time Acoustic Voice Mask (Anti-Biometric Vocal Formant Shifter) */}
+        {onToggleVoiceMask && (
+          <button
+            onClick={onToggleVoiceMask}
+            aria-label={isVoiceMaskEnabled ? 'Disable Biometric Voice Mask' : 'Enable Biometric Voice Mask'}
+            title={isVoiceMaskEnabled ? 'Biometric Voice Mask: Active (-3.5st Formant & Pitch Shifter)' : 'Biometric Voice Mask: Off'}
+            className={`min-w-[44px] min-h-[44px] p-3 rounded-xl border transition-all focus-visible:ring-2 focus-visible:ring-cyber-emerald focus-visible:outline-none ${
+              isVoiceMaskEnabled
+                ? 'bg-cyber-emerald/20 border-cyber-emerald/60 text-cyber-emerald shadow-[0_0_12px_rgba(16,185,129,0.35)]'
+                : 'bg-dark-850 hover:bg-dark-800 border-dark-700 text-slate-400'
+            }`}
+          >
+            <VenetianMask className="w-5 h-5" aria-hidden="true" />
+          </button>
+        )}
+
         {/* Video Camera Toggle */}
         <button
           onClick={onToggleVideo}
@@ -527,6 +557,18 @@ export const CallRoom: React.FC<CallRoomProps> = ({
           <Shield className="w-5 h-5" aria-hidden="true" />
         </button>
 
+        {/* Duress Mode & Dead Man's Switch */}
+        {onOpenDuress && (
+          <button
+            onClick={onOpenDuress}
+            aria-label="Duress PIN and Emergency Zeroization Switch"
+            title="Duress PIN & Emergency RAM Wipe"
+            className="min-w-[44px] min-h-[44px] p-3 rounded-xl bg-dark-850 hover:bg-dark-800 border border-dark-700 text-cyber-amber hover:text-amber-300 transition-colors focus-visible:ring-2 focus-visible:ring-cyber-emerald focus-visible:outline-none"
+          >
+            <KeyRound className="w-5 h-5" aria-hidden="true" />
+          </button>
+        )}
+
         {/* Diagnostic HUD Trigger */}
         <button
           onClick={onToggleHUD}
@@ -565,6 +607,30 @@ export const CallRoom: React.FC<CallRoomProps> = ({
             </span>
           )}
         </button>
+
+        {/* Zero-Knowledge Collaborative Whiteboard Canvas */}
+        {onOpenWhiteboard && (
+          <button
+            onClick={onOpenWhiteboard}
+            aria-label="Open Zero-Knowledge Collaborative Whiteboard"
+            title="Collaborative Vector Whiteboard"
+            className="min-w-[44px] min-h-[44px] p-3 rounded-xl bg-dark-850 hover:bg-dark-800 border border-dark-700 text-cyber-cyan hover:text-cyan-300 transition-colors focus-visible:ring-2 focus-visible:ring-cyber-emerald focus-visible:outline-none"
+          >
+            <Palette className="w-5 h-5" aria-hidden="true" />
+          </button>
+        )}
+
+        {/* Ephemeral Self-Shredding Scratchpad */}
+        {onOpenScratchpad && (
+          <button
+            onClick={onOpenScratchpad}
+            aria-label="Open Ephemeral Self-Shredding Scratchpad"
+            title="Ephemeral RAM Scratchpad"
+            className="min-w-[44px] min-h-[44px] p-3 rounded-xl bg-dark-850 hover:bg-dark-800 border border-dark-700 text-slate-200 hover:text-white transition-colors focus-visible:ring-2 focus-visible:ring-cyber-emerald focus-visible:outline-none"
+          >
+            <FileCode className="w-5 h-5" aria-hidden="true" />
+          </button>
+        )}
 
         {/* Fullscreen Toggle */}
         <button

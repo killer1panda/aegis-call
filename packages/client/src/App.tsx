@@ -6,6 +6,9 @@ import { SecurityBadge } from './components/SecurityBadge.js';
 import { NetworkStatsHUD } from './components/NetworkStatsHUD.js';
 import { EncryptedChat } from './components/EncryptedChat.js';
 import { FileDropModal } from './components/FileDropModal.js';
+import { WhiteboardModal } from './components/WhiteboardModal.js';
+import { ScratchpadModal } from './components/ScratchpadModal.js';
+import { DuressUnlockModal } from './components/DuressUnlockModal.js';
 import { useWebRTC } from './hooks/useWebRTC.js';
 import { ShieldCheck, RotateCcw } from 'lucide-react';
 
@@ -20,6 +23,10 @@ export function App() {
   const [isSecurityOpen, setIsSecurityOpen] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [isFileDropOpen, setIsFileDropOpen] = useState(false);
+  const [isWhiteboardOpen, setIsWhiteboardOpen] = useState(false);
+  const [isScratchpadOpen, setIsScratchpadOpen] = useState(false);
+  const [isDuressOpen, setIsDuressOpen] = useState(false);
+  const [deadManTimeoutMinutes, setDeadManTimeoutMinutes] = useState(5);
 
   const {
     callState,
@@ -53,6 +60,14 @@ export function App() {
     receivedFiles,
     isNoiseSuppressionEnabled,
     toggleNoiseSuppression,
+    isVoiceMaskEnabled,
+    toggleVoiceMask,
+    incomingStroke,
+    broadcastStroke,
+    incomingScratchpadText,
+    broadcastScratchpadText,
+    isDecoyMode,
+    triggerDuressWipe,
     setSelectedAudioId,
     setSelectedVideoId,
     joinCall,
@@ -65,6 +80,30 @@ export function App() {
     markVerified,
     clearUnreadChat,
   } = useWebRTC(roomId);
+
+  // Dead Man's Inactivity Switch: silent zeroization if user is immobilized or coerced
+  useEffect(() => {
+    if (callState !== 'connected') return;
+
+    let timeoutId: number;
+    const resetTimer = () => {
+      window.clearTimeout(timeoutId);
+      timeoutId = window.setTimeout(() => {
+        console.warn('Dead Man Inactivity Switch triggered! Wiping keys & leaving call.');
+        triggerDuressWipe();
+        leaveCall();
+      }, deadManTimeoutMinutes * 60 * 1000);
+    };
+
+    const activityEvents = ['mousemove', 'keydown', 'click', 'touchstart', 'scroll'];
+    activityEvents.forEach((ev) => window.addEventListener(ev, resetTimer));
+    resetTimer();
+
+    return () => {
+      window.clearTimeout(timeoutId);
+      activityEvents.forEach((ev) => window.removeEventListener(ev, resetTimer));
+    };
+  }, [callState, deadManTimeoutMinutes, triggerDuressWipe, leaveCall]);
 
   // Sync URL search params when roomId changes
   useEffect(() => {
@@ -162,6 +201,11 @@ export function App() {
             unreadChatCount={unreadChatCount}
             isNoiseSuppressionEnabled={isNoiseSuppressionEnabled}
             onToggleNoiseSuppression={toggleNoiseSuppression}
+            isVoiceMaskEnabled={isVoiceMaskEnabled}
+            onToggleVoiceMask={toggleVoiceMask}
+            onOpenWhiteboard={() => setIsWhiteboardOpen(true)}
+            onOpenScratchpad={() => setIsScratchpadOpen(true)}
+            onOpenDuress={() => setIsDuressOpen(true)}
             isVadActive={isVadActive}
             estimatedNoiseFloorDb={estimatedNoiseFloorDb}
             acousticAuthenticityScore={acousticAuthenticityScore}
@@ -222,6 +266,47 @@ export function App() {
         receivedFiles={receivedFiles}
         isDataChannelOpen={isDataChannelOpen}
       />
+
+      {/* Zero-Knowledge Collaborative Whiteboard Modal */}
+      <WhiteboardModal
+        isOpen={isWhiteboardOpen}
+        onClose={() => setIsWhiteboardOpen(false)}
+        onBroadcastStroke={broadcastStroke}
+        incomingStroke={incomingStroke}
+        isDataChannelOpen={isDataChannelOpen}
+      />
+
+      {/* Ephemeral Self-Shredding Scratchpad Modal */}
+      <ScratchpadModal
+        isOpen={isScratchpadOpen}
+        onClose={() => setIsScratchpadOpen(false)}
+        onBroadcastText={broadcastScratchpadText}
+        incomingText={incomingScratchpadText}
+        isDataChannelOpen={isDataChannelOpen}
+      />
+
+      {/* Duress Mode & Dead Man's Switch Unlock Modal */}
+      <DuressUnlockModal
+        isOpen={isDuressOpen}
+        onClose={() => setIsDuressOpen(false)}
+        onUnlockSuccess={(isDecoy) => {
+          if (isDecoy) {
+            triggerDuressWipe();
+          }
+        }}
+        onUpdateDeadManTimeout={setDeadManTimeoutMinutes}
+        currentDeadManTimeout={deadManTimeoutMinutes}
+      />
+
+      {/* Decoy Mode Banner */}
+      {isDecoyMode && (
+        <aside
+          aria-label="Plausible Deniability Decoy Mode"
+          className="fixed top-16 left-1/2 -translate-x-1/2 z-50 px-4 py-1.5 rounded-full bg-cyber-amber/90 text-dark-950 text-xs font-bold shadow-lg border border-amber-400 animate-bounce flex items-center gap-2"
+        >
+          <span>⚠️ DECOY MODE ACTIVE — EPHEMERAL KEYS PURGED FROM MEMORY</span>
+        </aside>
+      )}
     </div>
   );
 }

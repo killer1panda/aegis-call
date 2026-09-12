@@ -9,3 +9,5 @@ export * from './postQuantum.js';
 export * from './mlsTreeKem.js';
 export * from './webAuthn.js';
 export * from './did.js';
+export * from './deniability.js';
+export * from './shamir.js';

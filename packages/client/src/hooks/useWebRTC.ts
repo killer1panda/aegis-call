@@ -28,6 +28,7 @@ import {
 } from '@aegis/crypto';
 
 import { ReceivedFile } from '../components/FileDropModal.js';
+import { WhiteboardStroke } from '../components/WhiteboardModal.js';
 import { useAudioWorklet } from './useAudioWorklet.js';
 import { AdaptiveBitrateController, ABRTelemetry } from '../services/congestionController.js';
 import { CallNotificationService } from '@aegis/mobile';
@@ -105,6 +106,8 @@ export function useWebRTC(roomId: string) {
     processedStream,
     isNoiseSuppressionEnabled,
     toggleNoiseSuppression,
+    isVoiceMaskEnabled,
+    toggleVoiceMask,
     isVadActive,
     estimatedNoiseFloorDb,
     acousticAuthenticityScore,
@@ -156,12 +159,16 @@ export function useWebRTC(roomId: string) {
     mode: 'sending',
   });
   const [receivedFiles, setReceivedFiles] = useState<ReceivedFile[]>([]);
+  const [incomingStroke, setIncomingStroke] = useState<WhiteboardStroke | null>(null);
+  const [incomingScratchpadText, setIncomingScratchpadText] = useState<string | null>(null);
+  const [isDecoyMode, setIsDecoyMode] = useState(false);
 
   // Refs for WebRTC & Cryptography
   const peerIdRef = useRef<string>(`peer-${Math.random().toString(36).substring(2, 9)}`);
   const keyPairRef = useRef<KeyPair | null>(null);
   const hybridKeyPairRef = useRef<HybridKeyPair | null>(null);
   const remotePublicKeyHexRef = useRef<string | null>(null);
+  const remoteHybridPublicKeyHexRef = useRef<string | null>(null);
   const sessionKeysRef = useRef<DerivedSessionKeys | null>(null);
   const directionalKeysRef = useRef<DirectionalSessionKeys | null>(null);
   const dataCipherRef = useRef<DataCipher | null>(null);
@@ -407,6 +414,18 @@ export function useWebRTC(roomId: string) {
             }
           }
         }
+
+        // Whiteboard Stroke Synchronization
+        if (raw.type === 'wb-stroke') {
+          setIncomingStroke(raw.stroke);
+          return;
+        }
+
+        // Ephemeral Scratchpad Synchronization
+        if (raw.type === 'scratchpad-text') {
+          setIncomingScratchpadText(raw.text);
+          return;
+        }
       } catch (err) {
         console.warn('Error parsing incoming DataChannel message:', err);
       }
@@ -641,6 +660,9 @@ export function useWebRTC(roomId: string) {
 
             if (signalData.type === 'key-exchange') {
               remotePublicKeyHexRef.current = signalData.publicKeyHex;
+              if (signalData.hybridPublicKeyHex) {
+                remoteHybridPublicKeyHexRef.current = signalData.hybridPublicKeyHex;
+              }
               try {
                 setRemoteDid(formatX25519DID(hexToBytes(signalData.publicKeyHex)));
               } catch (e) {
@@ -715,11 +737,14 @@ export function useWebRTC(roomId: string) {
             } else if (signalData.type === 'pqc-encap' && hybridKeyPairRef.current) {
               // Impolite peer decapsulates hybrid shared secret
               const peerPublicKeyBytes = hexToBytes(remotePublicKeyHexRef.current!);
+              const peerHybridPkBytes = remoteHybridPublicKeyHexRef.current
+                ? hexToBytes(remoteHybridPublicKeyHexRef.current)
+                : peerPublicKeyBytes;
               const dirKeys = decapsulateHybridDirectional(
                 signalData.cipherTextHex,
                 hybridKeyPairRef.current.secretKey,
                 hybridKeyPairRef.current.publicKey,
-                peerPublicKeyBytes,
+                peerHybridPkBytes,
                 roomId
               );
               applyDirectionalKeys(dirKeys, peerPublicKeyBytes, worker);
@@ -1153,6 +1178,56 @@ export function useWebRTC(roomId: string) {
 
   const clearUnreadChat = () => setUnreadChatCount(0);
 
+  const broadcastStroke = useCallback((stroke: WhiteboardStroke) => {
+    if (dataChannelRef.current && dataChannelRef.current.readyState === 'open') {
+      try {
+        dataChannelRef.current.send(JSON.stringify({ type: 'wb-stroke', stroke }));
+      } catch (err) {
+        console.warn('Failed to broadcast whiteboard stroke:', err);
+      }
+    }
+  }, []);
+
+  const broadcastScratchpadText = useCallback((text: string) => {
+    if (dataChannelRef.current && dataChannelRef.current.readyState === 'open') {
+      try {
+        dataChannelRef.current.send(JSON.stringify({ type: 'scratchpad-text', text }));
+      } catch (err) {
+        console.warn('Failed to broadcast scratchpad text:', err);
+      }
+    }
+  }, []);
+
+  const triggerDuressWipe = useCallback(() => {
+    setIsDecoyMode(true);
+    // 1. Zeroize directional session keys
+    if (directionalKeysRef.current) {
+      directionalKeysRef.current.sendAudioKey.fill(0);
+      directionalKeysRef.current.sendVideoKey.fill(0);
+      directionalKeysRef.current.sendDataKey.fill(0);
+      directionalKeysRef.current.recvAudioKey.fill(0);
+      directionalKeysRef.current.recvVideoKey.fill(0);
+      directionalKeysRef.current.recvDataKey.fill(0);
+      directionalKeysRef.current = null;
+    }
+    if (sessionKeysRef.current) {
+      sessionKeysRef.current.audioKey.fill(0);
+      sessionKeysRef.current.videoKey.fill(0);
+      sessionKeysRef.current.dataKey.fill(0);
+      sessionKeysRef.current = null;
+    }
+    // 2. Wipe messages and received files from RAM
+    setMessages([]);
+    setReceivedFiles([]);
+    setSafetyNumbers(null);
+    setIsPeerVerified(false);
+    setIsSelfVerified(false);
+    // 3. Post zeroization command to Web Worker
+    if (workerRef.current) {
+      workerRef.current.postMessage({ type: 'zeroize-keys' });
+    }
+  }, []);
+
   return {
     callState,
     errorMessage,
@@ -1185,6 +1260,14 @@ export function useWebRTC(roomId: string) {
     receivedFiles,
     isNoiseSuppressionEnabled,
     toggleNoiseSuppression,
+    isVoiceMaskEnabled,
+    toggleVoiceMask,
+    incomingStroke,
+    broadcastStroke,
+    incomingScratchpadText,
+    broadcastScratchpadText,
+    isDecoyMode,
+    triggerDuressWipe,
     setSelectedAudioId,
     setSelectedVideoId,
     joinCall,

@@ -52,6 +52,14 @@ self.onmessage = (event: MessageEvent) => {
       recvVideoCipher = new SFrameCipher(new Uint8Array(recvVideoKey), new Uint8Array(recvIvBase));
     }
     self.postMessage({ type: 'ciphers-ready' });
+  } else if (data.type === 'zeroize-keys') {
+    sendAudioCipher = null;
+    recvAudioCipher = null;
+    sendVideoCipher = null;
+    recvVideoCipher = null;
+    prevRecvAudioCipher = null;
+    prevRecvVideoCipher = null;
+    self.postMessage({ type: 'ciphers-zeroized' });
   }
 };
 

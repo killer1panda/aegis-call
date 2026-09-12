@@ -8,3 +8,5 @@ coverage/
 *.tsbuildinfo
 src-tauri/target/
 **/target/
+playwright-report/
+test-results/
