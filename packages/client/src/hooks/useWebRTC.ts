@@ -161,6 +161,7 @@ export function useWebRTC(roomId: string) {
   const [receivedFiles, setReceivedFiles] = useState<ReceivedFile[]>([]);
   const [incomingStroke, setIncomingStroke] = useState<WhiteboardStroke | null>(null);
   const [incomingScratchpadText, setIncomingScratchpadText] = useState<string | null>(null);
+  const [incomingCaption, setIncomingCaption] = useState<{ text: string; id: string } | null>(null);
   const [isDecoyMode, setIsDecoyMode] = useState(false);
 
   // Refs for WebRTC & Cryptography
@@ -424,6 +425,12 @@ export function useWebRTC(roomId: string) {
         // Ephemeral Scratchpad Synchronization
         if (raw.type === 'scratchpad-text') {
           setIncomingScratchpadText(raw.text);
+          return;
+        }
+
+        // Live Closed Captions Broadcast
+        if (raw.type === 'live-caption' && raw.text) {
+          setIncomingCaption({ text: raw.text, id: Math.random().toString(36).substring(2, 9) });
           return;
         }
       } catch (err) {
@@ -1198,6 +1205,16 @@ export function useWebRTC(roomId: string) {
     }
   }, []);
 
+  const broadcastCaption = useCallback((text: string) => {
+    if (dataChannelRef.current && dataChannelRef.current.readyState === 'open') {
+      try {
+        dataChannelRef.current.send(JSON.stringify({ type: 'live-caption', text }));
+      } catch (err) {
+        console.warn('Failed to broadcast live caption:', err);
+      }
+    }
+  }, []);
+
   const triggerDuressWipe = useCallback(() => {
     setIsDecoyMode(true);
     // 1. Zeroize directional session keys
@@ -1266,6 +1283,8 @@ export function useWebRTC(roomId: string) {
     broadcastStroke,
     incomingScratchpadText,
     broadcastScratchpadText,
+    incomingCaption,
+    broadcastCaption,
     isDecoyMode,
     triggerDuressWipe,
     setSelectedAudioId,

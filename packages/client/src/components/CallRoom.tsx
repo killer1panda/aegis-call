@@ -22,6 +22,9 @@ import {
   Palette,
   FileCode,
   KeyRound,
+  Captions,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import { useAudioVisualizer } from '../hooks/useAudioVisualizer.js';
 import { IdentityService } from '../services/identityService.js';
@@ -42,6 +45,11 @@ interface CallRoomProps {
   onOpenWhiteboard?: () => void;
   onOpenScratchpad?: () => void;
   onOpenDuress?: () => void;
+  isCaptionsEnabled?: boolean;
+  onToggleCaptions?: () => void;
+  captions?: Array<{ id: string; speaker: string; text: string; timestamp: number }>;
+  isPrivacyMaskActive?: boolean;
+  onTogglePrivacyMask?: () => void;
   isVadActive?: boolean;
   estimatedNoiseFloorDb?: number;
   acousticAuthenticityScore?: number;
@@ -75,6 +83,11 @@ export const CallRoom: React.FC<CallRoomProps> = ({
   onOpenWhiteboard,
   onOpenScratchpad,
   onOpenDuress,
+  isCaptionsEnabled = false,
+  onToggleCaptions,
+  captions = [],
+  isPrivacyMaskActive = false,
+  onTogglePrivacyMask,
   isVadActive = false,
   estimatedNoiseFloorDb,
   acousticAuthenticityScore,
@@ -464,6 +477,30 @@ export const CallRoom: React.FC<CallRoomProps> = ({
             )}
           </div>
         </aside>
+
+        {/* Live Closed Captions Subtitle Overlay */}
+        {isCaptionsEnabled && captions.length > 0 && (
+          <div
+            aria-live="polite"
+            aria-atomic="true"
+            data-testid="captions-overlay"
+            className="absolute bottom-24 left-1/2 -translate-x-1/2 max-w-2xl w-full px-4 pointer-events-none z-20 flex flex-col items-center gap-1.5"
+          >
+            {captions.slice(-3).map((cap) => (
+              <div
+                key={cap.id}
+                className="bg-dark-950/85 backdrop-blur-md border border-dark-750/80 px-4 py-1.5 rounded-xl shadow-2xl text-center"
+              >
+                <span className="text-xs font-mono font-semibold text-cyber-emerald mr-2">
+                  [{cap.speaker}]:
+                </span>
+                <span className="text-sm font-sans text-slate-100 font-medium">
+                  {cap.text}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
       </section>
 
       {/* Floating Cybernetic Control Dock */}
@@ -530,6 +567,23 @@ export const CallRoom: React.FC<CallRoomProps> = ({
         >
           {isVideoMuted ? <CameraOff className="w-5 h-5" aria-hidden="true" /> : <Camera className="w-5 h-5" aria-hidden="true" />}
         </button>
+
+        {/* Real-Time Video Privacy Shroud / Face Blur */}
+        {onTogglePrivacyMask && (
+          <button
+            onClick={onTogglePrivacyMask}
+            aria-label={isPrivacyMaskActive ? 'Disable Video Privacy Shroud' : 'Enable Video Privacy Shroud (Face & Background Blur)'}
+            title={isPrivacyMaskActive ? 'Video Privacy Shroud: Active (Real-Time Canvas Mask)' : 'Video Privacy Shroud: Off'}
+            data-testid="toggle-privacy-mask-btn"
+            className={`min-w-[44px] min-h-[44px] p-3 rounded-xl border transition-all focus-visible:ring-2 focus-visible:ring-cyber-emerald focus-visible:outline-none ${
+              isPrivacyMaskActive
+                ? 'bg-cyber-cyan/20 border-cyber-cyan/60 text-cyber-cyan shadow-[0_0_12px_rgba(6,182,212,0.35)]'
+                : 'bg-dark-850 hover:bg-dark-800 border-dark-700 text-slate-400'
+            }`}
+          >
+            {isPrivacyMaskActive ? <EyeOff className="w-5 h-5" aria-hidden="true" /> : <Eye className="w-5 h-5" aria-hidden="true" />}
+          </button>
+        )}
 
         {/* Screen Share */}
         <button
@@ -607,6 +661,23 @@ export const CallRoom: React.FC<CallRoomProps> = ({
             </span>
           )}
         </button>
+
+        {/* Zero-Cloud Live Closed Captions */}
+        {onToggleCaptions && (
+          <button
+            onClick={onToggleCaptions}
+            aria-label={isCaptionsEnabled ? 'Disable Live Closed Captions' : 'Enable Live Closed Captions'}
+            title={isCaptionsEnabled ? 'Live Closed Captions: Active' : 'Live Closed Captions: Off'}
+            data-testid="toggle-captions-btn"
+            className={`min-w-[44px] min-h-[44px] p-3 rounded-xl border transition-all focus-visible:ring-2 focus-visible:ring-cyber-emerald focus-visible:outline-none ${
+              isCaptionsEnabled
+                ? 'bg-cyber-emerald/20 border-cyber-emerald/60 text-cyber-emerald shadow-[0_0_12px_rgba(16,185,129,0.35)]'
+                : 'bg-dark-850 hover:bg-dark-800 border-dark-700 text-slate-400'
+            }`}
+          >
+            <Captions className="w-5 h-5" aria-hidden="true" />
+          </button>
+        )}
 
         {/* Zero-Knowledge Collaborative Whiteboard Canvas */}
         {onOpenWhiteboard && (

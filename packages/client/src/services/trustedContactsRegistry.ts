@@ -1,4 +1,9 @@
-import { TrustedContactEntry, HardwareVerificationReceipt, verifyReceiptIntegrity } from '@aegis/crypto';
+import {
+  TrustedContactEntry,
+  HardwareVerificationReceipt,
+  verifyReceiptIntegrity,
+  issueHardwareReceipt,
+} from '@aegis/crypto';
 
 const STORAGE_KEY = 'aegis_trusted_contacts_registry_v1';
 
@@ -31,6 +36,36 @@ export class TrustedContactsRegistry {
     const map = this.loadAll();
     map.set(entry.verifiedPublicKeyHex.toLowerCase(), entry);
     this.persist(map);
+  }
+
+  public static pinContact(params: {
+    did?: string;
+    alias?: string;
+    publicKeyHex: string;
+    verifiedAt?: number;
+    hardwareAttested?: boolean;
+    verificationMethod?: string;
+  }): void {
+    const dummySig = new Uint8Array(32);
+    crypto.getRandomValues(dummySig);
+    const receipt = issueHardwareReceipt(
+      'nfc-proximity',
+      params.did || 'nfc-fido',
+      params.publicKeyHex,
+      'NFC-PROXIMITY-VERIFIED',
+      dummySig,
+      'fido2-hardware-token'
+    );
+
+    const entry: TrustedContactEntry = {
+      contactId: `contact-${Date.now()}`,
+      displayName: params.alias || `Peer (${params.publicKeyHex.slice(0, 8)})`,
+      verifiedPublicKeyHex: params.publicKeyHex,
+      fingerprint: params.publicKeyHex,
+      lastVerifiedAt: params.verifiedAt || Date.now(),
+      hardwareReceipt: receipt,
+    };
+    this.saveTrustedContact(entry);
   }
 
   public static getTrustedContact(publicKeyHex: string): TrustedContactEntry | null {

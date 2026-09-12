@@ -9,7 +9,10 @@ import { FileDropModal } from './components/FileDropModal.js';
 import { WhiteboardModal } from './components/WhiteboardModal.js';
 import { ScratchpadModal } from './components/ScratchpadModal.js';
 import { DuressUnlockModal } from './components/DuressUnlockModal.js';
+import { HardwareGateModal } from './components/HardwareGateModal.js';
 import { useWebRTC } from './hooks/useWebRTC.js';
+import { useLiveCaptions } from './hooks/useLiveCaptions.js';
+import { useVideoPrivacyMask } from './hooks/useVideoPrivacyMask.js';
 import { ShieldCheck, RotateCcw } from 'lucide-react';
 
 export function App() {
@@ -79,7 +82,55 @@ export function App() {
     sendFile,
     markVerified,
     clearUnreadChat,
+    incomingCaption,
+    broadcastCaption,
   } = useWebRTC(roomId);
+
+  // Real-Time Video Privacy Shroud / Face Blur Filter
+  const {
+    isPrivacyMaskActive,
+    processedStream,
+    togglePrivacyMask,
+  } = useVideoPrivacyMask(localStream);
+
+  // Zero-Cloud Local Closed Captions & Live Transcription
+  const {
+    isCaptionsEnabled,
+    captions,
+    toggleCaptions,
+    addIncomingCaption,
+  } = useLiveCaptions({
+    onBroadcastCaption: broadcastCaption,
+    localStream,
+  });
+
+  // Relay incoming peer captions received over WebRTC DataChannel to local transcript stream
+  useEffect(() => {
+    if (incomingCaption?.text) {
+      addIncomingCaption(incomingCaption.text, 'peer');
+    }
+  }, [incomingCaption, addIncomingCaption]);
+
+  // High-Assurance Room Hardware Gate (FIDO2 / YubiKey touch challenge)
+  const isHighAssuranceRoom =
+    roomId.includes('high-assurance') ||
+    roomId.includes('fido') ||
+    (typeof window !== 'undefined' && window.location.search.includes('hwgate=1'));
+  const [isHardwareGateOpen, setIsHardwareGateOpen] = useState(false);
+  const [isHardwareGatePassed, setIsHardwareGatePassed] = useState(false);
+
+  const handleJoinAttempt = () => {
+    if (isHighAssuranceRoom && !isHardwareGatePassed) {
+      setIsHardwareGateOpen(true);
+      return;
+    }
+    joinCall();
+  };
+
+  const handleHardwareGatePassed = () => {
+    setIsHardwareGatePassed(true);
+    joinCall();
+  };
 
   // Dead Man's Inactivity Switch: silent zeroization if user is immobilized or coerced
   useEffect(() => {
@@ -147,7 +198,7 @@ export function App() {
             selectedVideoId={selectedVideoId}
             onSelectAudio={setSelectedAudioId}
             onSelectVideo={setSelectedVideoId}
-            onJoin={joinCall}
+            onJoin={handleJoinAttempt}
             errorMessage={errorMessage}
           />
         ) : callState === 'ended' ? (
@@ -191,7 +242,7 @@ export function App() {
           </div>
         ) : (
           <CallRoom
-            localStream={localStream}
+            localStream={isPrivacyMaskActive && processedStream ? processedStream : localStream}
             remoteStream={remoteStream}
             isAudioMuted={isAudioMuted}
             isVideoMuted={isVideoMuted}
@@ -206,6 +257,11 @@ export function App() {
             onOpenWhiteboard={() => setIsWhiteboardOpen(true)}
             onOpenScratchpad={() => setIsScratchpadOpen(true)}
             onOpenDuress={() => setIsDuressOpen(true)}
+            isCaptionsEnabled={isCaptionsEnabled}
+            onToggleCaptions={toggleCaptions}
+            captions={captions}
+            isPrivacyMaskActive={isPrivacyMaskActive}
+            onTogglePrivacyMask={togglePrivacyMask}
             isVadActive={isVadActive}
             estimatedNoiseFloorDb={estimatedNoiseFloorDb}
             acousticAuthenticityScore={acousticAuthenticityScore}
@@ -296,6 +352,14 @@ export function App() {
         }}
         onUpdateDeadManTimeout={setDeadManTimeoutMinutes}
         currentDeadManTimeout={deadManTimeoutMinutes}
+      />
+
+      {/* High-Assurance FIDO2 / YubiKey Hardware Token Gate */}
+      <HardwareGateModal
+        isOpen={isHardwareGateOpen}
+        onClose={() => setIsHardwareGateOpen(false)}
+        onGatePassed={handleHardwareGatePassed}
+        roomId={roomId}
       />
 
       {/* Decoy Mode Banner */}

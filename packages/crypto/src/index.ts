@@ -11,3 +11,4 @@ export * from './webAuthn.js';
 export * from './did.js';
 export * from './deniability.js';
 export * from './shamir.js';
+export * from './nfcPairing.js';

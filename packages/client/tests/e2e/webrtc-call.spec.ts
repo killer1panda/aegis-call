@@ -67,7 +67,27 @@ test.describe('AegisCall WebRTC E2E Protocol & Features Verification', () => {
       await pageA.locator('button[aria-label="Close Scratchpad Modal"]').click();
       await expect(pageA.getByRole('dialog', { name: /Scratchpad/i })).not.toBeVisible();
 
-      // 9. Test Duress PIN & Plausible Deniability Decoy Mode
+      // 9. Test Video Privacy Shroud & Face Blur Filter
+      const privacyMaskBtnA = pageA.locator('button[data-testid="toggle-privacy-mask-btn"]');
+      await expect(privacyMaskBtnA).toBeVisible();
+      await privacyMaskBtnA.click();
+      await expect(pageA.locator('button[title*="Video Privacy Shroud: Active"]')).toBeVisible();
+
+      // 10. Test Live Closed Captions Toggle
+      const captionsBtnA = pageA.locator('button[data-testid="toggle-captions-btn"]');
+      await expect(captionsBtnA).toBeVisible();
+      await captionsBtnA.click();
+      await expect(pageA.locator('button[title*="Live Closed Captions: Active"]')).toBeVisible();
+
+      // 11. Test Security Modal and NFC Tap to Verify Button
+      const securityBtnA = pageA.locator('button[title="Inspect Safety Numbers"]');
+      await securityBtnA.click();
+      await expect(pageA.getByRole('dialog', { name: /End-to-End Encryption Verification/i })).toBeVisible();
+      const nfcBtnA = pageA.locator('button[data-testid="nfc-verify-btn"]');
+      await expect(nfcBtnA).toBeVisible();
+      await pageA.locator('button[aria-label="Close Security Modal"]').click();
+
+      // 12. Test Duress PIN & Plausible Deniability Decoy Mode
       await duressBtnA.click();
       await expect(pageA.getByRole('dialog', { name: /Duress/i })).toBeVisible();
       
