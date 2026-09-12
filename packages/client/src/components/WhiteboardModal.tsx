@@ -9,7 +9,9 @@ import {
   Download,
   Lock,
   WifiOff,
+  Layers,
 } from 'lucide-react';
+import { CRDTWhiteboardDoc, WhiteboardDelta } from '@aegis/crypto';
 
 export interface StrokePoint {
   x: number;
@@ -18,10 +20,11 @@ export interface StrokePoint {
 
 export interface WhiteboardStroke {
   id: string;
-  tool: 'pen' | 'line' | 'rect' | 'circle' | 'eraser';
+  tool: 'pen' | 'line' | 'rect' | 'circle' | 'eraser' | 'arrow';
   color: string;
   width: number;
   points: StrokePoint[];
+  delta?: WhiteboardDelta;
 }
 
 interface WhiteboardModalProps {
@@ -48,6 +51,7 @@ export const WhiteboardModal: React.FC<WhiteboardModalProps> = ({
   const [currentWidth, setCurrentWidth] = useState<number>(4);
   const [isDrawing, setIsDrawing] = useState(false);
 
+  const crdtDocRef = useRef<CRDTWhiteboardDoc>(new CRDTWhiteboardDoc(`peer-${Date.now().toString(36)}`));
   const strokesRef = useRef<WhiteboardStroke[]>([]);
   const currentPointsRef = useRef<StrokePoint[]>([]);
 
@@ -134,16 +138,40 @@ export const WhiteboardModal: React.FC<WhiteboardModalProps> = ({
     redrawCanvas();
   }, [isOpen, redrawCanvas]);
 
-  // Handle incoming remote stroke
+  // Handle incoming remote stroke with CRDT resolution
   useEffect(() => {
     if (!incomingStroke) return;
-    strokesRef.current.push(incomingStroke);
-    const canvas = canvasRef.current;
-    if (canvas) {
-      const ctx = canvas.getContext('2d');
-      if (ctx) renderSingleStroke(ctx, incomingStroke);
+
+    if (incomingStroke.points.length === 0 && incomingStroke.id.startsWith('clear-')) {
+      crdtDocRef.current.clear();
+      strokesRef.current = [];
+      redrawCanvas();
+      return;
     }
-  }, [incomingStroke]);
+
+    if (incomingStroke.delta) {
+      crdtDocRef.current.mergeDelta(incomingStroke.delta);
+    } else {
+      const crdtTool = incomingStroke.tool === 'line' ? 'pen' : incomingStroke.tool;
+      crdtDocRef.current.addStroke({
+        id: incomingStroke.id,
+        type: crdtTool,
+        points: incomingStroke.points,
+        color: incomingStroke.color,
+        strokeWidth: incomingStroke.width,
+      });
+    }
+
+    strokesRef.current = crdtDocRef.current.getActiveElements().map((el) => ({
+      id: el.id,
+      tool: el.type,
+      color: el.color,
+      width: el.strokeWidth,
+      points: el.points,
+    }));
+
+    redrawCanvas();
+  }, [incomingStroke, redrawCanvas]);
 
   // Keyboard shortcut listener (ESC to close)
   useEffect(() => {
@@ -216,12 +244,24 @@ export const WhiteboardModal: React.FC<WhiteboardModalProps> = ({
     setIsDrawing(false);
 
     if (currentPointsRef.current.length > 0) {
+      const strokeId = `stroke-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+      const crdtTool = currentTool === 'line' ? 'pen' : currentTool;
+
+      const { delta } = crdtDocRef.current.addStroke({
+        id: strokeId,
+        type: crdtTool,
+        points: [...currentPointsRef.current],
+        color: currentColor,
+        strokeWidth: currentWidth,
+      });
+
       const stroke: WhiteboardStroke = {
-        id: `stroke-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+        id: strokeId,
         tool: currentTool,
         color: currentColor,
         width: currentWidth,
         points: [...currentPointsRef.current],
+        delta,
       };
 
       strokesRef.current.push(stroke);
@@ -232,6 +272,7 @@ export const WhiteboardModal: React.FC<WhiteboardModalProps> = ({
   };
 
   const handleClear = () => {
+    const clearDelta = crdtDocRef.current.clear();
     strokesRef.current = [];
     redrawCanvas();
     onBroadcastStroke({
@@ -240,6 +281,7 @@ export const WhiteboardModal: React.FC<WhiteboardModalProps> = ({
       color: '#000000',
       width: 0,
       points: [],
+      delta: clearDelta,
     });
   };
 
@@ -274,6 +316,9 @@ export const WhiteboardModal: React.FC<WhiteboardModalProps> = ({
                 <span>Encrypted Vector Whiteboard</span>
                 <span className="flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded-full bg-cyber-emerald/10 border border-cyber-emerald/30 text-cyber-emerald">
                   <Lock className="w-3 h-3" /> P2P DataChannel (AES-256-GCM)
+                </span>
+                <span className="hidden sm:flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded-full bg-cyber-cyan/10 border border-cyber-cyan/30 text-cyber-cyan">
+                  <Layers className="w-3 h-3" /> CRDT Vector Clock
                 </span>
               </h2>
               <p className="text-xs text-slate-400">Zero server storage • Vector deltas live only in ephemeral RAM</p>

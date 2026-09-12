@@ -9,6 +9,7 @@ import { generateEphemeralTurnCredentials } from './turnCredentials.js';
 import { sfuRelayRouter, SfuRelay } from './sfuRelay.js';
 import { OHttpRelay } from './ohttpRelay.js';
 import { PushService } from './pushService.js';
+import { SipPstnGateway, registerSipRoutes } from './sipPstnGateway.js';
 
 export function createServer(): FastifyInstance {
   const server = Fastify({
@@ -16,6 +17,7 @@ export function createServer(): FastifyInstance {
   });
 
   const roomManager = new RoomManager();
+  const sipGateway = new SipPstnGateway();
 
   server.register(cors, {
     origin: '*',
@@ -49,6 +51,9 @@ export function createServer(): FastifyInstance {
 
   // Mobile VoIP Push Notification Gateway (APNs VoIP & FCM Data-Only)
   PushService.registerRoutes(server);
+
+  // Sovereign SIP Trunking & Encrypted PSTN Audio Gateway
+  registerSipRoutes(server, sipGateway);
 
   // WebSocket signaling gateway
   const socketRateMap = new WeakMap<WebSocket, { count: number; resetAt: number; joins: number }>();

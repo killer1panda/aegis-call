@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { whisperEngine, WhisperEngine } from '../services/whisperEngine.js';
 
 export interface CaptionEntry {
   id: string;
@@ -35,7 +36,7 @@ export function useLiveCaptions({ onBroadcastCaption, localStream }: UseLiveCapt
     setIsCaptionsEnabled((prev) => !prev);
   }, []);
 
-  // Initialize browser speech recognition engine on-device
+  // Initialize browser speech recognition engine on-device with Whisper fallback
   useEffect(() => {
     if (!isCaptionsEnabled || !localStream) {
       if (recognitionRef.current) {
@@ -51,7 +52,18 @@ export function useLiveCaptions({ onBroadcastCaption, localStream }: UseLiveCapt
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
     if (!SpeechRecognition) {
-      console.warn('SpeechRecognition API not available in this environment');
+      if (WhisperEngine.isSupported()) {
+        const stopWhisper = whisperEngine.startContinuousTranscription(localStream, (result) => {
+          if (result.text) {
+            addIncomingCaption(result.text, 'local');
+            if (result.isFinal && onBroadcastCaption) {
+              onBroadcastCaption(result.text);
+            }
+          }
+        });
+        return stopWhisper;
+      }
+      console.warn('SpeechRecognition and WhisperEngine not available in this environment');
       return;
     }
 

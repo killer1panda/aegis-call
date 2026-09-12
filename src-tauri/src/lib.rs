@@ -54,6 +54,32 @@ fn trigger_panic_wipe(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AudioIsolatedWindow {
+    pub id: u32,
+    pub title: String,
+    pub process_name: String,
+    pub is_isolated: bool,
+}
+
+#[tauri::command]
+fn get_audio_isolated_windows() -> Result<Vec<AudioIsolatedWindow>, String> {
+    Ok(vec![
+        AudioIsolatedWindow {
+            id: 1,
+            title: "Browser / Presentation Window".to_string(),
+            process_name: "browser".to_string(),
+            is_isolated: true,
+        },
+        AudioIsolatedWindow {
+            id: 2,
+            title: "Development IDE / Terminal".to_string(),
+            process_name: "ide".to_string(),
+            is_isolated: true,
+        },
+    ])
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -93,7 +119,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             get_desktop_security_info,
-            trigger_panic_wipe
+            trigger_panic_wipe,
+            get_audio_isolated_windows
         ])
         .run(tauri::generate_context!())
         .expect("error while running aegis-call desktop application");
