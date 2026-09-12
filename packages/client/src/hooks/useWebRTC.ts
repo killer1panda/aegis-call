@@ -171,6 +171,9 @@ export function useWebRTC(roomId: string) {
   const ignoreOfferRef = useRef(false);
   const politeRef = useRef(false);
   const blobUrlsRef = useRef<string[]>([]);
+  const reconnectTimeoutRef = useRef<number | null>(null);
+  const reconnectAttemptsRef = useRef<number>(0);
+  const isExplicitLeaveRef = useRef<boolean>(false);
 
   const statsIntervalRef = useRef<number | null>(null);
   const lastBytesRef = useRef<{ bytes: number; time: number }>({ bytes: 0, time: Date.now() });
@@ -213,6 +216,11 @@ export function useWebRTC(roomId: string) {
 
     return () => {
       navigator.mediaDevices?.removeEventListener?.('devicechange', fetchDevices);
+      isExplicitLeaveRef.current = true;
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
       blobUrlsRef.current.forEach((url) => {
         try {
           URL.revokeObjectURL(url);
@@ -512,6 +520,7 @@ export function useWebRTC(roomId: string) {
 
   // 6. Connect to Signaling Server & Join Room
   const joinCall = useCallback(async () => {
+    isExplicitLeaveRef.current = false;
     setCallState('joining');
     setErrorMessage(null);
 
@@ -540,6 +549,7 @@ export function useWebRTC(roomId: string) {
     socketRef.current = ws;
 
     ws.onopen = () => {
+      reconnectAttemptsRef.current = 0;
       setCallState('connecting');
       ws.send(
         JSON.stringify({
@@ -739,9 +749,27 @@ export function useWebRTC(roomId: string) {
       }
     };
 
-    ws.onerror = () => {
-      setCallState('error');
-      setErrorMessage('Could not connect to signaling server. Make sure it is running.');
+    ws.onclose = () => {
+      if (isExplicitLeaveRef.current) return;
+      if (callState === 'room-full') return;
+
+      const attempts = reconnectAttemptsRef.current;
+      if (attempts < 5) {
+        reconnectAttemptsRef.current++;
+        const backoffMs = Math.min(1000 * Math.pow(1.8, attempts) + Math.random() * 500, 10000);
+        console.warn(`Signaling transport closed. Reconnecting attempt ${attempts + 1}/5 in ${Math.round(backoffMs)}ms...`);
+        if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = window.setTimeout(() => {
+          joinCall();
+        }, backoffMs);
+      } else {
+        setCallState('error');
+        setErrorMessage('Signaling server connection lost after 5 reconnect attempts.');
+      }
+    };
+
+    ws.onerror = (e) => {
+      console.warn('Signaling WebSocket error:', e);
     };
 
     startStatsPolling();
@@ -999,6 +1027,13 @@ export function useWebRTC(roomId: string) {
 
   // 12. Leave Call & Teardown
   const leaveCall = () => {
+    isExplicitLeaveRef.current = true;
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
+    reconnectAttemptsRef.current = 0;
+
     if (statsIntervalRef.current) clearInterval(statsIntervalRef.current);
     if (socketRef.current) {
       socketRef.current.send(JSON.stringify({ type: 'leave', roomId }));

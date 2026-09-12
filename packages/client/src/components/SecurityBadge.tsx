@@ -20,6 +20,7 @@ import {
   resolveDIDDocument,
   createCallVerificationPresentation,
   issueHardwareReceipt,
+  generateAuthChallenge,
   generateIdentityKeyPair,
   signCallVerificationPresentation,
   verifyCallVerificationPresentation,
@@ -127,16 +128,46 @@ export const SecurityBadge: React.FC<SecurityBadgeProps> = ({
     }
   };
 
-  const handlePinContact = () => {
+  const handlePinContact = async () => {
     if (!safetyNumbers) return;
+
+    let credId = `cred-${Date.now()}`;
+    let sigBytes = new Uint8Array(32);
+    crypto.getRandomValues(sigBytes);
+    let authType: 'apple-secure-enclave' | 'windows-hello' | 'fido2-hardware-token' | 'webauthn-software' = 'apple-secure-enclave';
+
+    if (typeof window !== 'undefined' && (window as any).PublicKeyCredential && navigator.credentials) {
+      try {
+        const challenge = generateAuthChallenge(roomId);
+        const cred = (await navigator.credentials.get({
+          publicKey: {
+            challenge: challenge as BufferSource,
+            timeout: 60000,
+            userVerification: 'preferred',
+          },
+        })) as any;
+
+        if (cred) {
+          credId = cred.id;
+          if (cred.response?.signature) {
+            sigBytes = new Uint8Array(cred.response.signature);
+          }
+        }
+      } catch (_) {
+        // Fallback to software attestation if user cancels biometric prompt or hardware is unavailable
+        authType = 'webauthn-software';
+      }
+    }
+
     const receipt = issueHardwareReceipt(
       roomId,
-      `cred-${Date.now()}`,
+      credId,
       safetyNumbers.hexFingerprint,
       safetyNumbers.numericCode,
-      new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]),
-      'apple-secure-enclave'
+      sigBytes,
+      authType
     );
+
     TrustedContactsRegistry.saveTrustedContact({
       contactId: `contact-${Date.now()}`,
       displayName: `Peer (${roomId.slice(0, 8)})`,

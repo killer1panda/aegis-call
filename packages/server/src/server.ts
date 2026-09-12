@@ -43,16 +43,47 @@ export function createServer(): FastifyInstance {
   });
 
   // WebSocket signaling gateway
+  const socketRateMap = new WeakMap<WebSocket, { count: number; resetAt: number; joins: number }>();
+  const RATE_LIMIT_WINDOW_MS = 1000;
+  const MAX_MESSAGES_PER_SEC = 60;
+
   server.register(async function (fastify) {
     fastify.get('/ws', { websocket: true }, (connection, req) => {
       const socket = connection as unknown as WebSocket;
 
       socket.on('message', (rawData: Buffer | string) => {
         try {
+          const now = Date.now();
+          let rate = socketRateMap.get(socket);
+          if (!rate || now > rate.resetAt) {
+            rate = { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS, joins: rate?.joins || 0 };
+            socketRateMap.set(socket, rate);
+          } else {
+            rate.count++;
+            if (rate.count > MAX_MESSAGES_PER_SEC) {
+              const errResponse: ServerMessage = {
+                type: 'error',
+                message: 'Rate limit exceeded. Connection throttled to protect room availability.',
+              };
+              socket.send(JSON.stringify(errResponse));
+              return;
+            }
+          }
+
           const message: ClientMessage = JSON.parse(rawData.toString());
 
           switch (message.type) {
             case 'join': {
+              if (rate.joins > 10) {
+                const errResponse: ServerMessage = {
+                  type: 'error',
+                  message: 'Join rate limit exceeded for this session.',
+                };
+                socket.send(JSON.stringify(errResponse));
+                return;
+              }
+              rate.joins++;
+
               const result = roomManager.joinRoom(message.roomId, message.peerId, socket);
               if (!result.success) {
                 const response: ServerMessage = {
