@@ -1,10 +1,15 @@
 import { WebSocket } from 'ws';
 
+export type SimulcastTier = 'high' | 'medium' | 'low';
+
 export interface SfuProducer {
   producerId: string;
   peerId: string;
   kind: 'audio' | 'video';
   sframeKeyId: string;
+  simulcastTier?: SimulcastTier;
+  spatialLayer?: number;
+  temporalLayer?: number;
   active: boolean;
 }
 
@@ -12,6 +17,7 @@ export interface SfuConsumer {
   consumerId: string;
   peerId: string;
   producerId: string;
+  preferredTier?: SimulcastTier;
 }
 
 export interface SfuRoom {
@@ -126,6 +132,73 @@ export class SfuRelay {
 
     for (const [peerId, socket] of room.peers.entries()) {
       if (peerId !== senderPeerId && socket.readyState === WebSocket.OPEN) {
+        socket.send(packet);
+        forwardedCount++;
+      }
+    }
+
+    return forwardedCount;
+  }
+
+  /**
+   * Sets a peer consumer's desired simulcast tier ('high' | 'medium' | 'low').
+   */
+  public setConsumerTier(
+    roomId: string,
+    peerId: string,
+    producerId: string,
+    preferredTier: SimulcastTier
+  ): boolean {
+    const room = this.rooms.get(roomId);
+    if (!room) return false;
+
+    const consumerId = `cons-${peerId}-${producerId}`;
+    let consumer = room.consumers.get(consumerId);
+    if (!consumer) {
+      consumer = { consumerId, peerId, producerId, preferredTier };
+      room.consumers.set(consumerId, consumer);
+    } else {
+      consumer.preferredTier = preferredTier;
+    }
+    return true;
+  }
+
+  /**
+   * Blindly routes an encrypted simulcast frame only to peers whose selected tier
+   * or downlink bandwidth matches the frame's quality level, without decrypting SFrame payloads.
+   */
+  public forwardEncryptedSimulcastFrame(
+    roomId: string,
+    senderPeerId: string,
+    producerId: string,
+    encryptedPayload: string | Buffer,
+    tier: SimulcastTier,
+    spatialLayer: number = 0,
+    temporalLayer: number = 0
+  ): number {
+    const room = this.rooms.get(roomId);
+    if (!room) return 0;
+
+    let forwardedCount = 0;
+    const packet = JSON.stringify({
+      type: 'sfu-simulcast-relay',
+      producerId,
+      senderPeerId,
+      tier,
+      spatialLayer,
+      temporalLayer,
+      data: encryptedPayload,
+    });
+
+    for (const [peerId, socket] of room.peers.entries()) {
+      if (peerId === senderPeerId || socket.readyState !== WebSocket.OPEN) continue;
+
+      const consumerId = `cons-${peerId}-${producerId}`;
+      const consumer = room.consumers.get(consumerId);
+      const targetTier = consumer?.preferredTier || 'high';
+
+      // Tier matching: 'low' receivers only receive low tier; 'medium' receive medium; 'high' receive high
+      if (targetTier === tier || (targetTier === 'high' && tier === 'medium')) {
         socket.send(packet);
         forwardedCount++;
       }

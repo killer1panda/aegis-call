@@ -8,6 +8,7 @@ class NoiseGateProcessor extends AudioWorkletProcessor {
       { name: 'attack', defaultValue: 0.005, minValue: 0.001, maxValue: 0.1 },
       { name: 'release', defaultValue: 0.08, minValue: 0.01, maxValue: 0.5 },
       { name: 'enabled', defaultValue: 1, minValue: 0, maxValue: 1 },
+      { name: 'filterMode', defaultValue: 2, minValue: 0, maxValue: 2 }, // 0: bypass, 1: soft-knee, 2: spectral
     ];
   }
 
@@ -15,6 +16,10 @@ class NoiseGateProcessor extends AudioWorkletProcessor {
     super();
     this.envelope = 0.0;
     this.gain = 1.0;
+    this.noiseFloor = 0.005;
+    this.adaptationRate = 0.01;
+    this.vadActive = false;
+    this.reportCounter = 0;
   }
 
   process(inputs, outputs, parameters) {
@@ -27,6 +32,7 @@ class NoiseGateProcessor extends AudioWorkletProcessor {
     const attack = parameters.attack[0];
     const release = parameters.release[0];
     const isEnabled = parameters.enabled[0] > 0.5;
+    const mode = Math.round(parameters.filterMode[0]);
 
     for (let channel = 0; channel < input.length; channel++) {
       const inputChannel = input[channel];
@@ -35,7 +41,7 @@ class NoiseGateProcessor extends AudioWorkletProcessor {
       for (let i = 0; i < inputChannel.length; i++) {
         const sample = inputChannel[i];
 
-        if (!isEnabled) {
+        if (!isEnabled || mode === 0) {
           outputChannel[i] = sample;
           continue;
         }
@@ -47,19 +53,48 @@ class NoiseGateProcessor extends AudioWorkletProcessor {
           this.envelope += (absSample - this.envelope) * release;
         }
 
+        // Voice Activity Detection & Adaptive Noise Floor
+        this.vadActive = this.envelope > (this.noiseFloor + threshold);
+        if (!this.vadActive) {
+          this.noiseFloor = (1 - this.adaptationRate) * this.noiseFloor + this.adaptationRate * absSample;
+        }
+
         let targetGain = 0.0;
-        if (this.envelope > threshold) {
-          targetGain = 1.0;
-        } else if (this.envelope > threshold * 0.5) {
-          const factor = (this.envelope - threshold * 0.5) / (threshold * 0.5);
-          targetGain = factor * factor;
+        if (mode === 2) {
+          // Spectral subtraction mode
+          const snr = this.envelope / Math.max(0.0001, this.noiseFloor);
+          if (snr < 1.2) {
+            targetGain = 0.05;
+          } else if (snr < 2.5) {
+            targetGain = Math.pow((snr - 1.2) / 1.3, 1.5);
+          } else {
+            targetGain = 1.0;
+          }
         } else {
-          targetGain = 0.0;
+          // Soft-knee mode
+          if (this.envelope > threshold) {
+            targetGain = 1.0;
+          } else if (this.envelope > threshold * 0.5) {
+            const factor = (this.envelope - threshold * 0.5) / (threshold * 0.5);
+            targetGain = factor * factor;
+          } else {
+            targetGain = 0.0;
+          }
         }
 
         this.gain += (targetGain - this.gain) * 0.15;
         outputChannel[i] = sample * this.gain;
       }
+    }
+
+    this.reportCounter++;
+    if (this.reportCounter >= 30) {
+      this.reportCounter = 0;
+      this.port.postMessage({
+        type: 'vad-telemetry',
+        vadActive: this.vadActive,
+        noiseFloorDb: Math.round(20 * Math.log10(Math.max(0.00001, this.noiseFloor))),
+      });
     }
 
     return true;
@@ -70,6 +105,8 @@ registerProcessor('noise-gate-processor', NoiseGateProcessor);
 
 export function useAudioWorklet(rawStream: MediaStream | null) {
   const [isNoiseSuppressionEnabled, setIsNoiseSuppressionEnabled] = useState(true);
+  const [isVadActive, setIsVadActive] = useState(false);
+  const [estimatedNoiseFloorDb, setEstimatedNoiseFloorDb] = useState(-48);
   const [processedStream, setProcessedStream] = useState<MediaStream | null>(null);
 
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -105,6 +142,15 @@ export function useAudioWorklet(rawStream: MediaStream | null) {
 
         const workletNode = new AudioWorkletNode(ctx, 'noise-gate-processor');
         workletNodeRef.current = workletNode;
+
+        workletNode.port.onmessage = (event) => {
+          if (event.data?.type === 'vad-telemetry') {
+            setIsVadActive(event.data.vadActive);
+            if (typeof event.data.noiseFloorDb === 'number') {
+              setEstimatedNoiseFloorDb(event.data.noiseFloorDb);
+            }
+          }
+        };
 
         const dest = ctx.createMediaStreamDestination();
         destinationNodeRef.current = dest;
@@ -154,5 +200,7 @@ export function useAudioWorklet(rawStream: MediaStream | null) {
     processedStream: processedStream || rawStream,
     isNoiseSuppressionEnabled,
     toggleNoiseSuppression,
+    isVadActive,
+    estimatedNoiseFloorDb,
   };
 }

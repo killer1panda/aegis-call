@@ -8,3 +8,4 @@ export * from './fileCipher.js';
 export * from './postQuantum.js';
 export * from './mlsTreeKem.js';
 export * from './webAuthn.js';
+export * from './did.js';
