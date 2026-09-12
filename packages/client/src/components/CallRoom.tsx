@@ -136,13 +136,15 @@ export const CallRoom: React.FC<CallRoomProps> = ({
       >
         {/* Remote Video */}
         {remoteStream ? (
-          <video
-            ref={remoteVideoRef}
-            autoPlay
-            playsInline
-            aria-label="Remote participant video feed"
-            className="w-full h-full object-cover"
-          />
+          <div className={`relative w-full h-full rounded-2xl overflow-hidden transition-all duration-200 ${remoteVolume > 15 ? 'ring-4 ring-cyber-emerald/60 shadow-2xl shadow-cyber-emerald/20' : ''}`}>
+            <video
+              ref={remoteVideoRef}
+              autoPlay
+              playsInline
+              aria-label="Remote participant video feed"
+              className="w-full h-full object-cover"
+            />
+          </div>
         ) : (
           <div className="flex flex-col items-center justify-center text-center p-8 space-y-4" role="status">
             <div className="relative">
@@ -164,6 +166,12 @@ export const CallRoom: React.FC<CallRoomProps> = ({
             </div>
           </div>
         )}
+
+        {/* Top Right Zero-Trust SFU Relay Indicator */}
+        <div className="absolute top-4 right-4 flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-dark-900/80 backdrop-blur-md border border-dark-750 text-[11px] font-mono text-slate-300 pointer-events-none">
+          <span className="w-2 h-2 rounded-full bg-cyber-emerald animate-pulse" />
+          <span>Zero-Trust SFU • SFrame</span>
+        </div>
 
         {/* Remote Peer Status Overlay */}
         {remoteStream && (
