@@ -5,6 +5,8 @@ import { WebSocket } from 'ws';
 import { RoomManager } from './roomManager.js';
 import { ClientMessage, ServerMessage } from './types.js';
 
+import { generateEphemeralTurnCredentials } from './turnCredentials.js';
+
 export function createServer(): FastifyInstance {
   const server = Fastify({
     logger: false,
@@ -31,6 +33,12 @@ export function createServer(): FastifyInstance {
       activeRooms: roomManager.getActiveRoomCount(),
       timestamp: Date.now(),
     };
+  });
+
+  // RFC 5766 REST API for dynamic ephemeral TURN credentials
+  server.get('/turn-credentials', async (request) => {
+    const peerId = (request.query as { peerId?: string })?.peerId || `peer-${Date.now()}`;
+    return generateEphemeralTurnCredentials(peerId);
   });
 
   // WebSocket signaling gateway

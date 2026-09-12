@@ -6,3 +6,5 @@ export * from './dataCipher.js';
 export * from './sframe.js';
 export * from './fileCipher.js';
 export * from './postQuantum.js';
+export * from './mlsTreeKem.js';
+export * from './webAuthn.js';
