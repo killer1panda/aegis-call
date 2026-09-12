@@ -25,6 +25,8 @@ import {
   Captions,
   Eye,
   EyeOff,
+  BellOff,
+  Phone,
 } from 'lucide-react';
 import { useAudioVisualizer } from '../hooks/useAudioVisualizer.js';
 import { IdentityService } from '../services/identityService.js';
@@ -45,11 +47,14 @@ interface CallRoomProps {
   onOpenWhiteboard?: () => void;
   onOpenScratchpad?: () => void;
   onOpenDuress?: () => void;
+  onOpenTelephony?: () => void;
   isCaptionsEnabled?: boolean;
   onToggleCaptions?: () => void;
   captions?: Array<{ id: string; speaker: string; text: string; timestamp: number }>;
   isPrivacyMaskActive?: boolean;
   onTogglePrivacyMask?: () => void;
+  isAudioIsolationEnabled?: boolean;
+  onToggleAudioIsolation?: () => void;
   isVadActive?: boolean;
   estimatedNoiseFloorDb?: number;
   acousticAuthenticityScore?: number;
@@ -83,11 +88,14 @@ export const CallRoom: React.FC<CallRoomProps> = ({
   onOpenWhiteboard,
   onOpenScratchpad,
   onOpenDuress,
+  onOpenTelephony,
   isCaptionsEnabled = false,
   onToggleCaptions,
   captions = [],
   isPrivacyMaskActive = false,
   onTogglePrivacyMask,
+  isAudioIsolationEnabled = true,
+  onToggleAudioIsolation,
   isVadActive = false,
   estimatedNoiseFloorDb,
   acousticAuthenticityScore,
@@ -599,6 +607,23 @@ export const CallRoom: React.FC<CallRoomProps> = ({
           <MonitorUp className="w-5 h-5" aria-hidden="true" />
         </button>
 
+        {/* Audio Isolation (Notification Chimes Filter) */}
+        {onToggleAudioIsolation && (
+          <button
+            onClick={onToggleAudioIsolation}
+            aria-label={isAudioIsolationEnabled ? 'Disable Audio Chime Isolation' : 'Enable Audio Chime Isolation'}
+            title={isAudioIsolationEnabled ? 'Audio Isolation: Active (OS Chimes Filtered)' : 'Audio Isolation: Off'}
+            data-testid="toggle-audio-isolation-btn"
+            className={`min-w-[44px] min-h-[44px] p-3 rounded-xl border transition-all focus-visible:ring-2 focus-visible:ring-cyber-emerald focus-visible:outline-none ${
+              isAudioIsolationEnabled
+                ? 'bg-cyber-purple/20 border-cyber-purple/60 text-cyber-purple shadow-[0_0_12px_rgba(168,85,247,0.35)]'
+                : 'bg-dark-850 hover:bg-dark-800 border-dark-700 text-slate-400'
+            }`}
+          >
+            <BellOff className="w-5 h-5" aria-hidden="true" />
+          </button>
+        )}
+
         <div className="h-6 w-px bg-dark-700 my-auto" />
 
         {/* Safety Numbers Modal Trigger */}
@@ -610,6 +635,19 @@ export const CallRoom: React.FC<CallRoomProps> = ({
         >
           <Shield className="w-5 h-5" aria-hidden="true" />
         </button>
+
+        {/* Sovereign Telephony / SIP Trunk Dialpad Trigger */}
+        {onOpenTelephony && (
+          <button
+            onClick={onOpenTelephony}
+            aria-label="Open Sovereign Telephony Dialpad"
+            title="Sovereign Telephony Dialpad (SIP / PSTN & DTMF)"
+            data-testid="callroom-telephony-btn"
+            className="min-w-[44px] min-h-[44px] p-3 rounded-xl bg-dark-850 hover:bg-dark-800 border border-dark-700 text-cyber-emerald hover:text-emerald-300 transition-colors focus-visible:ring-2 focus-visible:ring-cyber-emerald focus-visible:outline-none"
+          >
+            <Phone className="w-5 h-5" aria-hidden="true" />
+          </button>
+        )}
 
         {/* Duress Mode & Dead Man's Switch */}
         {onOpenDuress && (

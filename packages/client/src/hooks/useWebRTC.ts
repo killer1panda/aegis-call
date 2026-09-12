@@ -32,6 +32,7 @@ import { WhiteboardStroke } from '../components/WhiteboardModal.js';
 import { useAudioWorklet } from './useAudioWorklet.js';
 import { AdaptiveBitrateController, ABRTelemetry } from '../services/congestionController.js';
 import { CallNotificationService } from '@aegis/mobile';
+import { AudioIsolationService } from '../services/audioIsolationService.js';
 
 export type CallState =
   | 'idle'
@@ -163,6 +164,7 @@ export function useWebRTC(roomId: string) {
   const [incomingScratchpadText, setIncomingScratchpadText] = useState<string | null>(null);
   const [incomingCaption, setIncomingCaption] = useState<{ text: string; id: string } | null>(null);
   const [isDecoyMode, setIsDecoyMode] = useState(false);
+  const [isAudioIsolationEnabled, setIsAudioIsolationEnabled] = useState(true);
 
   // Refs for WebRTC & Cryptography
   const peerIdRef = useRef<string>(`peer-${Math.random().toString(36).substring(2, 9)}`);
@@ -182,6 +184,7 @@ export function useWebRTC(roomId: string) {
   const dataChannelRef = useRef<RTCDataChannel | null>(null);
   const workerRef = useRef<Worker | null>(null);
   const screenTrackRef = useRef<MediaStreamTrack | null>(null);
+  const screenAudioTrackRef = useRef<MediaStreamTrack | null>(null);
 
   // Perfect Negotiation state refs
   const makingOfferRef = useRef(false);
@@ -972,11 +975,19 @@ export function useWebRTC(roomId: string) {
     }
   };
 
+  const toggleAudioIsolation = () => {
+    setIsAudioIsolationEnabled((prev) => !prev);
+  };
+
   const toggleScreenShare = async () => {
     if (isScreenSharing) {
       if (screenTrackRef.current) {
         screenTrackRef.current.stop();
         screenTrackRef.current = null;
+      }
+      if (screenAudioTrackRef.current) {
+        screenAudioTrackRef.current.stop();
+        screenAudioTrackRef.current = null;
       }
       const stream = await initLocalMedia();
       const videoTrack = stream?.getVideoTracks()[0];
@@ -987,9 +998,23 @@ export function useWebRTC(roomId: string) {
       setIsScreenSharing(false);
     } else {
       try {
-        const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+        const screenStream = await navigator.mediaDevices.getDisplayMedia({
+          video: true,
+          audio: true,
+        });
         const screenTrack = screenStream.getVideoTracks()[0];
         screenTrackRef.current = screenTrack;
+
+        // Process application audio with AudioIsolationService DSP filters if audio track is present
+        const screenAudio = screenStream.getAudioTracks()[0];
+        if (screenAudio) {
+          if (isAudioIsolationEnabled) {
+            const isolatedTrack = AudioIsolationService.getInstance().createIsolatedAudioTrack(screenStream);
+            screenAudioTrackRef.current = isolatedTrack || screenAudio;
+          } else {
+            screenAudioTrackRef.current = screenAudio;
+          }
+        }
 
         screenTrack.onended = () => {
           toggleScreenShare();
@@ -1294,6 +1319,8 @@ export function useWebRTC(roomId: string) {
     toggleAudio,
     toggleVideo,
     toggleScreenShare,
+    isAudioIsolationEnabled,
+    toggleAudioIsolation,
     sendMessage,
     sendFile,
     markVerified,

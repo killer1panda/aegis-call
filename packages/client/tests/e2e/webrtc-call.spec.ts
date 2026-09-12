@@ -98,7 +98,40 @@ test.describe('AegisCall WebRTC E2E Protocol & Features Verification', () => {
       await pageA.locator('button[aria-label="Close Social Recovery Modal"]').click();
       await expect(pageA.getByRole('dialog', { name: /Shamir Social Key Recovery/i })).not.toBeVisible();
 
-      // 13. Test Duress PIN & Plausible Deniability Decoy Mode
+      // 13. Test Signaling Transport Selector Modal
+      const transportBtnA = pageA.locator('button[data-testid="transport-selector-btn"]');
+      await expect(transportBtnA).toBeVisible();
+      await transportBtnA.click();
+      await expect(pageA.getByRole('dialog', { name: /Signaling Transport Resilience/i })).toBeVisible();
+      await expect(pageA.locator('text=Censorship Resistance Guarantee')).toBeVisible();
+      // Select Tor Onion SOCKS5 transport
+      await pageA.locator('text=Tor Onion SOCKS5 Tunnel').click();
+      await pageA.locator('button:has-text("Done")').click();
+      await expect(pageA.getByRole('dialog', { name: /Signaling Transport Resilience/i })).not.toBeVisible();
+      await expect(pageA.locator('button[data-testid="transport-selector-btn"]')).toContainText(/tor/i);
+
+      // 14. Test Sovereign Telephony Dialpad Modal & DTMF Keypad
+      const telephonyBtnA = pageA.locator('button[data-testid="telephony-dialpad-btn"]');
+      await expect(telephonyBtnA).toBeVisible();
+      await telephonyBtnA.click();
+      await expect(pageA.getByRole('dialog', { name: /Sovereign Telephony Dialpad/i })).toBeVisible();
+      // Click preset PSTN Gateway
+      await pageA.locator('button:has-text("PSTN Gateway")').click();
+      await expect(pageA.getByPlaceholder(/Enter SIP URI/i)).toHaveValue('sip:gateway@pstn.aegis');
+      // Toggle A-law codec
+      await pageA.locator('button:has-text("A-Law (PCMA)")').click();
+      await pageA.locator('button[aria-label="Close Dialpad"]').click();
+      await expect(pageA.getByRole('dialog', { name: /Sovereign Telephony Dialpad/i })).not.toBeVisible();
+
+      // 15. Test Audio Isolation Toggle (OS Notification Chime Filter)
+      const audioIsolationBtnA = pageA.locator('button[data-testid="toggle-audio-isolation-btn"]');
+      await expect(audioIsolationBtnA).toBeVisible();
+      await audioIsolationBtnA.click();
+      await expect(pageA.locator('button[title*="Audio Isolation: Off"]')).toBeVisible();
+      await audioIsolationBtnA.click();
+      await expect(pageA.locator('button[title*="Audio Isolation: Active"]')).toBeVisible();
+
+      // 16. Test Duress PIN & Plausible Deniability Decoy Mode
       await duressBtnA.click();
       await expect(pageA.getByRole('dialog', { name: /Duress/i })).toBeVisible();
       

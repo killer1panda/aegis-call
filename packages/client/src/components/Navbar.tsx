@@ -1,6 +1,7 @@
 import React from 'react';
-import { Shield, ShieldCheck, ShieldAlert, Activity, Key, Copy, Check, Users } from 'lucide-react';
+import { Shield, ShieldCheck, ShieldAlert, Activity, Key, Copy, Check, Users, Phone, Radio } from 'lucide-react';
 import { CallState } from '../hooks/useWebRTC.js';
+import { SignalingTransportType } from './TransportSelector.js';
 
 interface NavbarProps {
   roomId: string;
@@ -11,6 +12,9 @@ interface NavbarProps {
   onToggleHUD: () => void;
   isHUDOpen: boolean;
   onOpenSocialRecovery?: () => void;
+  onOpenTelephony?: () => void;
+  onOpenTransportSelector?: () => void;
+  selectedTransport?: SignalingTransportType;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -22,6 +26,9 @@ export const Navbar: React.FC<NavbarProps> = ({
   onToggleHUD,
   isHUDOpen,
   onOpenSocialRecovery,
+  onOpenTelephony,
+  onOpenTransportSelector,
+  selectedTransport = 'ws',
 }) => {
   const [copied, setCopied] = React.useState(false);
 
@@ -116,6 +123,32 @@ export const Navbar: React.FC<NavbarProps> = ({
           >
             <Users className="w-3.5 h-3.5" />
             <span className="hidden md:inline">Recovery</span>
+          </button>
+        )}
+
+        {onOpenTransportSelector && (
+          <button
+            onClick={onOpenTransportSelector}
+            title="Censorship-Resistant Signaling Transports (WebSocket / Nostr / Tor / DHT / Mesh)"
+            data-testid="transport-selector-btn"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-dark-850 hover:bg-dark-800 border border-dark-700 text-xs text-cyber-cyan hover:text-cyan-300 transition-colors"
+          >
+            <Radio className="w-3.5 h-3.5 text-cyber-cyan" />
+            <span className="font-mono text-[10px] uppercase font-bold text-cyber-cyan">
+              {selectedTransport?.toUpperCase()}
+            </span>
+          </button>
+        )}
+
+        {onOpenTelephony && (
+          <button
+            onClick={onOpenTelephony}
+            title="Sovereign Telephony Dialpad (SIP / PSTN Trunk & DTMF)"
+            data-testid="telephony-dialpad-btn"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-dark-850 hover:bg-dark-800 border border-dark-700 text-xs text-cyber-emerald hover:text-emerald-300 transition-colors"
+          >
+            <Phone className="w-3.5 h-3.5 text-cyber-emerald" />
+            <span className="hidden md:inline">Dialpad</span>
           </button>
         )}
 
