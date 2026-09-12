@@ -21,6 +21,16 @@ class SpectralNoiseFilterProcessor extends AudioWorkletProcessor {
     this.speechEnergy = 0.0;
     this.vadActive = false;
     this.lastReportTime = 0;
+
+    // Bio-acoustic deepfake & synthetic voice detection state
+    this.prevSample = 0.0;
+    this.prevSample2 = 0.0;
+    this.lastZeroCrossingIndex = 0;
+    this.sampleCount = 0;
+    this.periodLengths = [];
+    this.highFreqEnergyAccum = 0.0;
+    this.totalEnergyAccum = 0.0;
+    this.authenticityScore = 98.0; // Baseline 98%
   }
 
   process(inputs, outputs, parameters) {
@@ -40,13 +50,35 @@ class SpectralNoiseFilterProcessor extends AudioWorkletProcessor {
       if (mode === 0) {
         // Direct Bypass
         outChannel.set(inChannel);
-        continue;
       }
 
       // Compute frame RMS energy
       let frameEnergy = 0.0;
       for (let i = 0; i < inChannel.length; i++) {
-        frameEnergy += inChannel[i] * inChannel[i];
+        const s = inChannel[i];
+        frameEnergy += s * s;
+
+        // Bio-Acoustic Analysis:
+        // High-pass difference filter y[n] = s[n] - 2*s[n-1] + s[n-2] (highlights > 10-12kHz)
+        const hf = s - 2 * this.prevSample + this.prevSample2;
+        this.highFreqEnergyAccum += hf * hf;
+        this.totalEnergyAccum += s * s;
+
+        // Zero-crossing detection for vocal fold periodicity & micro-jitter
+        if ((this.prevSample <= 0 && s > 0) || (this.prevSample >= 0 && s < 0)) {
+          const period = this.sampleCount - this.lastZeroCrossingIndex;
+          if (period > 4 && period < 400) { // Valid human voice pitch periods (50Hz - 2000Hz)
+            this.periodLengths.push(period);
+            if (this.periodLengths.length > 64) {
+              this.periodLengths.shift();
+            }
+          }
+          this.lastZeroCrossingIndex = this.sampleCount;
+        }
+
+        this.prevSample2 = this.prevSample;
+        this.prevSample = s;
+        this.sampleCount++;
       }
       const rms = Math.sqrt(frameEnergy / inChannel.length);
 
@@ -58,38 +90,86 @@ class SpectralNoiseFilterProcessor extends AudioWorkletProcessor {
         this.noiseFloor = (1 - this.adaptationRate) * this.noiseFloor + this.adaptationRate * rms;
       }
 
-      // Spectral Over-subtraction & Wiener-style attenuation
-      const snr = rms / Math.max(0.0001, this.noiseFloor);
-      let attenuation = 1.0;
+      if (mode !== 0) {
+        // Spectral Over-subtraction & Wiener-style attenuation
+        const snr = rms / Math.max(0.0001, this.noiseFloor);
+        let attenuation = 1.0;
 
-      if (mode === 2) {
-        // Advanced Spectral Subtraction mode
-        if (snr < 1.2) {
-          attenuation = 0.05; // Noise floor suppression
-        } else if (snr < 3.0) {
-          const factor = (snr - 1.2) / 1.8;
-          attenuation = Math.max(0.05, Math.pow(factor, aggression));
+        if (mode === 2) {
+          // Advanced Spectral Subtraction mode
+          if (snr < 1.2) {
+            attenuation = 0.05; // Noise floor suppression
+          } else if (snr < 3.0) {
+            const factor = (snr - 1.2) / 1.8;
+            attenuation = Math.max(0.05, Math.pow(factor, aggression));
+          } else {
+            attenuation = 1.0;
+          }
         } else {
-          attenuation = 1.0;
+          // Mode 1: Soft-Knee Envelope Follower
+          attenuation = this.vadActive ? 1.0 : 0.08;
         }
-      } else {
-        // Mode 1: Soft-Knee Envelope Follower
-        attenuation = this.vadActive ? 1.0 : 0.08;
-      }
 
-      for (let i = 0; i < inChannel.length; i++) {
-        outChannel[i] = inChannel[i] * attenuation;
+        for (let i = 0; i < inChannel.length; i++) {
+          outChannel[i] = inChannel[i] * attenuation;
+        }
       }
     }
 
-    // Periodic telemetry report to main thread (every ~100ms / ~40 frames)
+    // Periodic telemetry and bio-acoustic deepfake analysis report (~100ms / ~40 frames)
     this.lastReportTime++;
     if (this.lastReportTime >= 40) {
       this.lastReportTime = 0;
+
+      // Compute acoustic authenticity score during active speech
+      if (this.vadActive && this.totalEnergyAccum > 0.001) {
+        const hfRatio = this.highFreqEnergyAccum / Math.max(0.00001, this.totalEnergyAccum);
+
+        // Vocal Fold Micro-Jitter (Periodicity Variance)
+        let jitterCoeff = 0.05;
+        if (this.periodLengths.length >= 16) {
+          const meanPeriod = this.periodLengths.reduce((a, b) => a + b, 0) / this.periodLengths.length;
+          let variance = 0;
+          for (let p of this.periodLengths) {
+            variance += (p - meanPeriod) * (p - meanPeriod);
+          }
+          const stdDev = Math.sqrt(variance / this.periodLengths.length);
+          jitterCoeff = stdDev / Math.max(1, meanPeriod);
+        }
+
+        // Deepfake scoring rubric:
+        // 1. Synthetic vocoder cutoff penalty: Most TTS/neural voice clones lack natural acoustic energy > 12kHz
+        let targetScore = 97.0;
+        if (hfRatio < 0.005) {
+          targetScore -= 45.0; // Steep drop for vocoder cutoff
+        } else if (hfRatio < 0.02) {
+          targetScore -= 20.0;
+        }
+
+        // 2. Unnatural periodicity / robotic lack of micro-jitter (< 0.015) or wild glitchiness (> 0.45)
+        if (jitterCoeff < 0.015) {
+          targetScore -= 30.0; // Robotic pitch synthesis
+        } else if (jitterCoeff > 0.45) {
+          targetScore -= 25.0; // Neural phase artifact
+        }
+
+        targetScore = Math.max(15.0, Math.min(99.0, targetScore));
+        // Exponential smoothing for steady UI gauge
+        this.authenticityScore = 0.7 * this.authenticityScore + 0.3 * targetScore;
+      } else {
+        // Slow recovery back to 98% during silence
+        this.authenticityScore = 0.95 * this.authenticityScore + 0.05 * 98.0;
+      }
+
+      // Reset accumulators
+      this.highFreqEnergyAccum = 0.0;
+      this.totalEnergyAccum = 0.0;
+
       this.port.postMessage({
         type: 'audio-dsp-telemetry',
         vadActive: this.vadActive,
         estimatedNoiseFloorDb: Math.round(20 * Math.log10(Math.max(0.00001, this.noiseFloor))),
+        acousticAuthenticityScore: Math.round(this.authenticityScore),
         mode,
       });
     }

@@ -1,0 +1,51 @@
+# syntax=docker/dockerfile:1.4
+
+# ------------------------------------------------------------------------------
+# 1. Base Layer
+# ------------------------------------------------------------------------------
+FROM node:22-alpine AS base
+WORKDIR /app
+RUN apk add --no-cache libc6-compat
+
+# ------------------------------------------------------------------------------
+# 2. Dependencies & Workspace Setup
+# ------------------------------------------------------------------------------
+FROM base AS dependencies
+COPY package.json package-lock.json ./
+COPY packages/crypto/package.json packages/crypto/
+COPY packages/mobile/package.json packages/mobile/
+COPY packages/server/package.json packages/server/
+COPY packages/client/package.json packages/client/
+RUN npm ci
+
+# ------------------------------------------------------------------------------
+# 3. Monorepo Build Layer
+# ------------------------------------------------------------------------------
+FROM dependencies AS builder
+COPY . .
+RUN npm run build
+
+# ------------------------------------------------------------------------------
+# 4. Sovereign Signaling Server Runner
+# ------------------------------------------------------------------------------
+FROM node:22-alpine AS signaling-server
+WORKDIR /app
+ENV NODE_ENV=production
+ENV PORT=4000
+
+COPY --from=dependencies /app/node_modules ./node_modules
+COPY --from=dependencies /app/packages/server/node_modules ./packages/server/node_modules
+COPY --from=builder /app/packages/server/dist ./packages/server/dist
+COPY --from=builder /app/packages/server/package.json ./packages/server/
+
+EXPOSE 4000
+USER node
+CMD ["node", "packages/server/dist/server.js"]
+
+# ------------------------------------------------------------------------------
+# 5. Sovereign Caddy 2 Web Gateway & Static Client
+# ------------------------------------------------------------------------------
+FROM caddy:2-alpine AS web-gateway
+COPY --from=builder /app/packages/client/dist /srv/client
+COPY infrastructure/caddy/Caddyfile /etc/caddy/Caddyfile
+EXPOSE 80 443

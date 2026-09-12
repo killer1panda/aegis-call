@@ -107,6 +107,7 @@ export function useWebRTC(roomId: string) {
     toggleNoiseSuppression,
     isVadActive,
     estimatedNoiseFloorDb,
+    acousticAuthenticityScore,
     ensureAudioResumed,
   } = useAudioWorklet(rawLocalStream);
   const localStream = processedStream || rawLocalStream;
@@ -1167,6 +1168,7 @@ export function useWebRTC(roomId: string) {
     remoteDid,
     isVadActive,
     estimatedNoiseFloorDb,
+    acousticAuthenticityScore,
     simulcastTier,
     setSimulcastTier,
     abrTelemetry,

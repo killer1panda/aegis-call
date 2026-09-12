@@ -40,10 +40,10 @@ self.onmessage = (event: MessageEvent) => {
     const recvIvBase = data.recvIvBase || data.ivBase;
 
     if (sendAudioKey && sendIvBase) {
-      sendAudioCipher = new SFrameCipher(new Uint8Array(sendAudioKey), new Uint8Array(sendIvBase));
+      sendAudioCipher = new SFrameCipher(new Uint8Array(sendAudioKey), new Uint8Array(sendIvBase), 128);
     }
     if (recvAudioKey && recvIvBase) {
-      recvAudioCipher = new SFrameCipher(new Uint8Array(recvAudioKey), new Uint8Array(recvIvBase));
+      recvAudioCipher = new SFrameCipher(new Uint8Array(recvAudioKey), new Uint8Array(recvIvBase), 128);
     }
     if (sendVideoKey && sendIvBase) {
       sendVideoCipher = new SFrameCipher(new Uint8Array(sendVideoKey), new Uint8Array(sendIvBase));

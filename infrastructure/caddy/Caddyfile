@@ -1,0 +1,44 @@
+{
+    # Global options block
+    admin off
+    email {$ACME_EMAIL:admin@aegiscall.io}
+}
+
+{$DOMAIN_NAME:localhost} {
+    encode gzip zstd
+
+    # Security Headers (Hardened Zero-Trust WebRTC & Cryptographic Sandbox)
+    header {
+        Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        Referrer-Policy "no-referrer"
+        Permissions-Policy "camera=(self), microphone=(self), display-capture=(self), fullscreen=(self)"
+        Cross-Origin-Opener-Policy "same-origin"
+        Cross-Origin-Embedder-Policy "require-corp"
+        Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-eval' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' wss://{$DOMAIN_NAME:localhost} https://{$DOMAIN_NAME:localhost} ws://localhost:* wss://localhost:*; font-src 'self' data:;"
+    }
+
+    # WebSocket Signaling Gateway
+    @websocket {
+        header Connection *Upgrade*
+        header Upgrade websocket
+        path /ws
+    }
+    reverse_proxy @websocket signaling:4000
+
+    # Signaling REST Endpoints (/health, /turn-credentials)
+    handle /health* {
+        reverse_proxy signaling:4000
+    }
+    handle /turn-credentials* {
+        reverse_proxy signaling:4000
+    }
+
+    # Static Client Single Page Application
+    handle {
+        root * /srv/client
+        try_files {path} /index.html
+        file_server
+    }
+}

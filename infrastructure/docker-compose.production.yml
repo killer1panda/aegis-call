@@ -1,0 +1,94 @@
+version: '3.8'
+
+services:
+  # ----------------------------------------------------------------------------
+  # 1. Aegis Signaling & Zero-Trust SFU Server
+  # ----------------------------------------------------------------------------
+  signaling:
+    build:
+      context: ..
+      dockerfile: Dockerfile.production
+      target: signaling-server
+    container_name: aegis-signaling-production
+    restart: unless-stopped
+    environment:
+      - PORT=4000
+      - NODE_ENV=production
+      - TURN_SHARED_SECRET=${TURN_SHARED_SECRET:?TURN_SHARED_SECRET environment variable is required}
+      - TURN_REALM=${TURN_REALM:-turn.aegiscall.io}
+      - TURN_SERVER_URLS=${TURN_SERVER_URLS:-turns:turn.aegiscall.io:5349,turn:turn.aegiscall.io:3478}
+    expose:
+      - "4000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:4000/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    networks:
+      - aegis-mesh
+    deploy:
+      resources:
+        limits:
+          cpus: '2.00'
+          memory: 1024M
+
+  # ----------------------------------------------------------------------------
+  # 2. Hardened Coturn STUN/TURN Relay Server (Host Networking for UDP ICE)
+  # ----------------------------------------------------------------------------
+  coturn:
+    image: coturn/coturn:latest
+    container_name: aegis-coturn-production
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./coturn/turnserver.conf:/etc/turnserver.conf:ro
+    environment:
+      - TURN_STATIC_AUTH_SECRET=${TURN_SHARED_SECRET:?TURN_SHARED_SECRET environment variable is required}
+      - TURN_REALM=${TURN_REALM:-turn.aegiscall.io}
+    healthcheck:
+      test: ["CMD-SHELL", "turnutils_uclient -p 3478 -m 1 -u test -w test 127.0.0.1 || exit 0"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '2.00'
+          memory: 1024M
+
+  # ----------------------------------------------------------------------------
+  # 3. Caddy 2 Reverse Proxy with Automatic ACME TLS & Hardened Headers
+  # ----------------------------------------------------------------------------
+  gateway:
+    build:
+      context: ..
+      dockerfile: Dockerfile.production
+      target: web-gateway
+    container_name: aegis-caddy-production
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - DOMAIN_NAME=${DOMAIN_NAME:-localhost}
+      - ACME_EMAIL=${ACME_EMAIL:-admin@aegiscall.io}
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - signaling
+    networks:
+      - aegis-mesh
+    deploy:
+      resources:
+        limits:
+          cpus: '1.00'
+          memory: 512M
+
+networks:
+  aegis-mesh:
+    driver: bridge
+
+volumes:
+  caddy_data:
+  caddy_config:

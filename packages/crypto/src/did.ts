@@ -1,4 +1,5 @@
 import { ed25519 } from '@noble/curves/ed25519';
+import { ml_dsa65 } from '@noble/post-quantum/ml-dsa.js';
 import { sha256 } from '@noble/hashes/sha256';
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils';
 
@@ -363,5 +364,193 @@ export function verifyCallVerificationPresentation(
       reason: `Signature verification error: ${err.message || 'unknown error'}`,
     };
   }
+}
+
+export interface HybridIdentityKeyPair {
+  ed25519: {
+    privateKey: Uint8Array;
+    publicKey: Uint8Array;
+    publicKeyHex: string;
+    did: string;
+  };
+  mldsa65: {
+    privateKey: Uint8Array;
+    publicKey: Uint8Array;
+    publicKeyHex: string;
+  };
+  hybridDid: string;
+}
+
+/**
+ * Generates a Hybrid Post-Quantum Identity Keypair combining classical Ed25519
+ * with NIST FIPS 204 ML-DSA-65 (Dilithium) for quantum-resistant verifiable credentials.
+ */
+export function generateHybridIdentityKeyPair(): HybridIdentityKeyPair {
+  const edPriv = ed25519.utils.randomPrivateKey();
+  const edPub = ed25519.getPublicKey(edPriv);
+  const edDid = formatEd25519DID(edPub);
+
+  const mldsaKeys = ml_dsa65.keygen();
+
+  return {
+    ed25519: {
+      privateKey: edPriv,
+      publicKey: edPub,
+      publicKeyHex: bytesToHex(edPub),
+      did: edDid,
+    },
+    mldsa65: {
+      privateKey: mldsaKeys.secretKey,
+      publicKey: mldsaKeys.publicKey,
+      publicKeyHex: bytesToHex(mldsaKeys.publicKey),
+    },
+    hybridDid: `${edDid}#mldsa65-${bytesToHex(mldsaKeys.publicKey.slice(0, 16))}`,
+  };
+}
+
+/**
+ * Signs a Call Verification Presentation using dual Hybrid Ed25519 + NIST FIPS 204 ML-DSA-65 signatures.
+ */
+export function signHybridCallVerificationPresentation(
+  hybridKeys: HybridIdentityKeyPair,
+  verifiedPeerDid: string,
+  sasFingerprint: string,
+  roomId: string
+): VerifiablePresentation {
+  const presentation = createCallVerificationPresentation(
+    hybridKeys.ed25519.did,
+    verifiedPeerDid,
+    sasFingerprint,
+    roomId
+  );
+
+  const digest = computeCredentialDigest(presentation.verifiableCredential);
+  const edSig = ed25519.sign(digest, hybridKeys.ed25519.privateKey);
+  const mldsaSig = ml_dsa65.sign(digest, hybridKeys.mldsa65.privateKey);
+
+  presentation.proof = {
+    type: 'HybridEd25519MLDSA65Signature2026',
+    created: new Date().toISOString(),
+    verificationMethod: hybridKeys.hybridDid,
+    proofPurpose: 'authentication',
+    jws: bytesToHex(edSig),
+    pqcProofHex: bytesToHex(mldsaSig),
+    pqcPublicKeyHex: bytesToHex(hybridKeys.mldsa65.publicKey),
+  } as any;
+
+  return presentation;
+}
+
+/**
+ * Verifies a Hybrid Call Verification Presentation against both Ed25519 and ML-DSA-65 signatures.
+ */
+export function verifyHybridCallVerificationPresentation(
+  presentation: VerifiablePresentation,
+  expectedRoomId?: string
+): VerificationResult & { isPostQuantumVerified?: boolean } {
+  const classicalResult = verifyCallVerificationPresentation(presentation, expectedRoomId);
+  if (!classicalResult.valid) {
+    return classicalResult;
+  }
+
+  const proof = presentation.proof as any;
+  if (!proof.pqcProofHex || !proof.pqcPublicKeyHex) {
+    return { ...classicalResult, isPostQuantumVerified: false };
+  }
+
+  try {
+    const digest = computeCredentialDigest(presentation.verifiableCredential);
+    const pqcSig = hexToBytes(proof.pqcProofHex);
+    const pqcPub = hexToBytes(proof.pqcPublicKeyHex);
+
+    const isPqcValid = ml_dsa65.verify(pqcSig, digest, pqcPub);
+    if (!isPqcValid) {
+      return {
+        valid: false,
+        reason: 'Post-quantum ML-DSA-65 signature verification failed (tampered credential)',
+        isPostQuantumVerified: false,
+      };
+    }
+
+    return {
+      ...classicalResult,
+      isPostQuantumVerified: true,
+    };
+  } catch (err: any) {
+    return {
+      valid: false,
+      reason: `ML-DSA-65 verification error: ${err.message || 'unknown error'}`,
+      isPostQuantumVerified: false,
+    };
+  }
+}
+
+export interface CallRecordingAttestation {
+  '@context': string[];
+  type: string[];
+  verifiableCredential: {
+    id: string;
+    issuer: string;
+    issuanceDate: string;
+    credentialSubject: {
+      id: string;
+      roomId: string;
+      recordingSha256: string;
+      durationSeconds: number;
+      mediaFormat: string;
+      participants: string[];
+    };
+  };
+  proof: {
+    type: string;
+    created: string;
+    verificationMethod: string;
+    proofPurpose: string;
+    jws: string;
+  };
+}
+
+/**
+ * Creates and signs a W3C Verifiable Credential attesting to a decrypted call recording's integrity.
+ */
+export function signCallRecordingAttestation(
+  issuerPrivateKey: Uint8Array,
+  issuerDid: string,
+  roomId: string,
+  recordingSha256: string,
+  durationSeconds: number,
+  participants: string[]
+): CallRecordingAttestation {
+  const now = new Date().toISOString();
+  const cred = {
+    id: `urn:uuid:${bytesToHex(sha256(new TextEncoder().encode(`${issuerDid}:${recordingSha256}:${now}`)))}`,
+    issuer: issuerDid,
+    issuanceDate: now,
+    credentialSubject: {
+      id: issuerDid,
+      roomId,
+      recordingSha256,
+      durationSeconds,
+      mediaFormat: 'video/webm; codecs=vp8,opus',
+      participants,
+    },
+  };
+
+  const canonicalString = `aegis-recording-v1:${cred.id}:${cred.issuer}:${cred.credentialSubject.roomId}:${cred.credentialSubject.recordingSha256}:${cred.credentialSubject.durationSeconds}`;
+  const digest = sha256(new TextEncoder().encode(canonicalString));
+  const signatureBytes = ed25519.sign(digest, issuerPrivateKey);
+
+  return {
+    '@context': ['https://www.w3.org/ns/did/v1', 'https://www.w3.org/2018/credentials/v1'],
+    type: ['VerifiablePresentation', 'AegisCallRecordingAttestation'],
+    verifiableCredential: cred,
+    proof: {
+      type: 'Ed25519Signature2020',
+      created: now,
+      verificationMethod: `${issuerDid}#key-1`,
+      proofPurpose: 'assertionMethod',
+      jws: bytesToHex(signatureBytes),
+    },
+  };
 }
 

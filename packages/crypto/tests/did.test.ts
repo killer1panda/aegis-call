@@ -99,4 +99,66 @@ describe('W3C Decentralized Identity (did:key) & Verifiable Presentations', () =
     expect(tamperedResult.valid).toBe(false);
     expect(tamperedResult.reason).toContain('tampered credential');
   });
+
+  it('should generate ML-DSA-65 + Ed25519 hybrid identity keys, sign and verify post-quantum presentations', async () => {
+    const {
+      generateHybridIdentityKeyPair,
+      signHybridCallVerificationPresentation,
+      verifyHybridCallVerificationPresentation,
+    } = await import('../src/did.js');
+
+    const aliceHybrid = generateHybridIdentityKeyPair();
+    const bobHybrid = generateHybridIdentityKeyPair();
+
+    expect(aliceHybrid.ed25519.did.startsWith('did:key:z')).toBe(true);
+    expect(aliceHybrid.hybridDid).toContain('#mldsa65-');
+    expect(aliceHybrid.mldsa65.publicKey.length).toBeGreaterThan(1000); // ML-DSA-65 public key is 1952 bytes
+
+    const presentation = signHybridCallVerificationPresentation(
+      aliceHybrid,
+      bobHybrid.ed25519.did,
+      'SAS:9988-1122',
+      'quantum-bunker-alpha'
+    );
+
+    expect(presentation.proof.type).toBe('HybridEd25519MLDSA65Signature2026');
+    expect((presentation.proof as any).pqcProofHex).toBeDefined();
+
+    // Verify valid presentation
+    const result = verifyHybridCallVerificationPresentation(presentation, 'quantum-bunker-alpha');
+    expect(result.valid).toBe(true);
+    expect(result.isPostQuantumVerified).toBe(true);
+    expect(result.issuerDid).toBe(aliceHybrid.ed25519.did);
+
+    // Tampered credential subject should fail post-quantum & classical verification
+    const tampered = JSON.parse(JSON.stringify(presentation));
+    tampered.verifiableCredential.credentialSubject.sasFingerprint = 'SAS:TAMPERED';
+    const tamperedResult = verifyHybridCallVerificationPresentation(tampered, 'quantum-bunker-alpha');
+    expect(tamperedResult.valid).toBe(false);
+  });
+
+  it('should generate and cryptographically sign dual-signed Call Recording Attestations', async () => {
+    const {
+      generateIdentityKeyPair,
+      signCallRecordingAttestation,
+    } = await import('../src/did.js');
+
+    const host = generateIdentityKeyPair();
+    const attestation = signCallRecordingAttestation(
+      host.privateKey,
+      host.did,
+      'room-secure-exec',
+      'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+      182,
+      [host.did, 'did:key:z6MkuBobPeerDid']
+    );
+
+    expect(attestation.type).toContain('AegisCallRecordingAttestation');
+    expect(attestation.verifiableCredential.credentialSubject.durationSeconds).toBe(182);
+    expect(attestation.verifiableCredential.credentialSubject.recordingSha256).toBe(
+      'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
+    );
+    expect(attestation.proof.jws.length).toBe(128);
+    expect(attestation.proof.proofPurpose).toBe('assertionMethod');
+  });
 });

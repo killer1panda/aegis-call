@@ -20,6 +20,16 @@ class NoiseGateProcessor extends AudioWorkletProcessor {
     this.adaptationRate = 0.01;
     this.vadActive = false;
     this.reportCounter = 0;
+
+    // Bio-acoustic deepfake & synthetic voice detection state
+    this.prevSample = 0.0;
+    this.prevSample2 = 0.0;
+    this.lastZeroCrossingIndex = 0;
+    this.sampleCount = 0;
+    this.periodLengths = [];
+    this.highFreqEnergyAccum = 0.0;
+    this.totalEnergyAccum = 0.0;
+    this.authenticityScore = 98.0; // Baseline 98%
   }
 
   process(inputs, outputs, parameters) {
@@ -40,6 +50,28 @@ class NoiseGateProcessor extends AudioWorkletProcessor {
 
       for (let i = 0; i < inputChannel.length; i++) {
         const sample = inputChannel[i];
+
+        // Bio-Acoustic Analysis:
+        // High-pass difference filter y[n] = s[n] - 2*s[n-1] + s[n-2] (highlights > 10-12kHz)
+        const hf = sample - 2 * this.prevSample + this.prevSample2;
+        this.highFreqEnergyAccum += hf * hf;
+        this.totalEnergyAccum += sample * sample;
+
+        // Zero-crossing detection for vocal fold periodicity & micro-jitter
+        if ((this.prevSample <= 0 && sample > 0) || (this.prevSample >= 0 && sample < 0)) {
+          const period = this.sampleCount - this.lastZeroCrossingIndex;
+          if (period > 4 && period < 400) { // Valid human voice pitch periods
+            this.periodLengths.push(period);
+            if (this.periodLengths.length > 64) {
+              this.periodLengths.shift();
+            }
+          }
+          this.lastZeroCrossingIndex = this.sampleCount;
+        }
+
+        this.prevSample2 = this.prevSample;
+        this.prevSample = sample;
+        this.sampleCount++;
 
         if (!isEnabled || mode === 0) {
           outputChannel[i] = sample;
@@ -90,10 +122,49 @@ class NoiseGateProcessor extends AudioWorkletProcessor {
     this.reportCounter++;
     if (this.reportCounter >= 30) {
       this.reportCounter = 0;
+
+      // Compute acoustic authenticity score during active speech
+      if (this.vadActive && this.totalEnergyAccum > 0.001) {
+        const hfRatio = this.highFreqEnergyAccum / Math.max(0.00001, this.totalEnergyAccum);
+
+        let jitterCoeff = 0.05;
+        if (this.periodLengths.length >= 16) {
+          const meanPeriod = this.periodLengths.reduce((a, b) => a + b, 0) / this.periodLengths.length;
+          let variance = 0;
+          for (let p of this.periodLengths) {
+            variance += (p - meanPeriod) * (p - meanPeriod);
+          }
+          const stdDev = Math.sqrt(variance / this.periodLengths.length);
+          jitterCoeff = stdDev / Math.max(1, meanPeriod);
+        }
+
+        let targetScore = 97.0;
+        if (hfRatio < 0.005) {
+          targetScore -= 45.0; // Sharp vocoder cutoff penalty
+        } else if (hfRatio < 0.02) {
+          targetScore -= 20.0;
+        }
+
+        if (jitterCoeff < 0.015) {
+          targetScore -= 30.0; // Robotic pitch
+        } else if (jitterCoeff > 0.45) {
+          targetScore -= 25.0; // Phase jitter
+        }
+
+        targetScore = Math.max(15.0, Math.min(99.0, targetScore));
+        this.authenticityScore = 0.7 * this.authenticityScore + 0.3 * targetScore;
+      } else {
+        this.authenticityScore = 0.95 * this.authenticityScore + 0.05 * 98.0;
+      }
+
+      this.highFreqEnergyAccum = 0.0;
+      this.totalEnergyAccum = 0.0;
+
       this.port.postMessage({
         type: 'vad-telemetry',
         vadActive: this.vadActive,
         noiseFloorDb: Math.round(20 * Math.log10(Math.max(0.00001, this.noiseFloor))),
+        acousticAuthenticityScore: Math.round(this.authenticityScore),
       });
     }
 
@@ -107,6 +178,7 @@ export function useAudioWorklet(rawStream: MediaStream | null) {
   const [isNoiseSuppressionEnabled, setIsNoiseSuppressionEnabled] = useState(true);
   const [isVadActive, setIsVadActive] = useState(false);
   const [estimatedNoiseFloorDb, setEstimatedNoiseFloorDb] = useState(-48);
+  const [acousticAuthenticityScore, setAcousticAuthenticityScore] = useState(98);
   const [processedStream, setProcessedStream] = useState<MediaStream | null>(null);
 
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -148,6 +220,9 @@ export function useAudioWorklet(rawStream: MediaStream | null) {
             setIsVadActive(event.data.vadActive);
             if (typeof event.data.noiseFloorDb === 'number') {
               setEstimatedNoiseFloorDb(event.data.noiseFloorDb);
+            }
+            if (typeof event.data.acousticAuthenticityScore === 'number') {
+              setAcousticAuthenticityScore(event.data.acousticAuthenticityScore);
             }
           }
         };
@@ -229,6 +304,7 @@ export function useAudioWorklet(rawStream: MediaStream | null) {
     toggleNoiseSuppression,
     isVadActive,
     estimatedNoiseFloorDb,
+    acousticAuthenticityScore,
     ensureAudioResumed,
   };
 }

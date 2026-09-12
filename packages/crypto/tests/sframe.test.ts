@@ -62,4 +62,37 @@ describe('IETF SFrame Protocol with Key Epoch Ratcheting', () => {
     // Second decryption of identical frame should fail due to replay detection
     await expect(dec.decryptFrame(encrypted)).rejects.toThrow(/Replay attack detected/);
   });
+
+  it('should quantize audio packets to constant-size 128-byte block increments (RFC 9605) and restore original frames', async () => {
+    const alice = generateEphemeralKeyPair();
+    const bob = generateEphemeralKeyPair();
+    const keys = deriveSessionKeys(alice.privateKey, bob.publicKey, 'test-room');
+
+    const enc = new SFrameCipher(keys.audioKey, keys.ivBase, 128);
+    const dec = new SFrameCipher(keys.audioKey, keys.ivBase, 128);
+
+    // Test a 45-byte Opus audio frame (variable bitrate)
+    const rawAudio45 = new Uint8Array(45);
+    for (let i = 0; i < 45; i++) rawAudio45[i] = (i * 7) % 256;
+
+    const enc45 = await enc.encryptFrame(rawAudio45);
+    // Wire length: 6B SFrame header + 128B padded ciphertext + 16B GCM tag = 150B
+    expect(enc45.length).toBe(6 + 128 + 16);
+
+    const dec45 = await dec.decryptFrame(enc45);
+    expect(dec45.length).toBe(45);
+    expect(dec45).toEqual(rawAudio45);
+
+    // Test an 80-byte Opus audio frame (different phonetic complexity)
+    const rawAudio80 = new Uint8Array(80);
+    for (let i = 0; i < 80; i++) rawAudio80[i] = (i * 11) % 256;
+
+    const enc80 = await enc.encryptFrame(rawAudio80);
+    // Both 45B and 80B frames quantize to the exact same 150B wire size!
+    expect(enc80.length).toBe(6 + 128 + 16);
+
+    const dec80 = await dec.decryptFrame(enc80);
+    expect(dec80.length).toBe(80);
+    expect(dec80).toEqual(rawAudio80);
+  });
 });

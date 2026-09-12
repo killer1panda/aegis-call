@@ -30,10 +30,12 @@ export class SFrameCipher {
   };
 
   private latencySumMicros: number = 0;
+  private padToBlockSize: number;
 
-  constructor(baseKey: Uint8Array, salt: Uint8Array) {
+  constructor(baseKey: Uint8Array, salt: Uint8Array, padToBlockSize: number = 0) {
     this.baseKey = baseKey;
     this.salt = salt;
+    this.padToBlockSize = padToBlockSize;
   }
 
   /**
@@ -114,6 +116,24 @@ export class SFrameCipher {
     headerView.setUint16(0, epoch, false);
     headerView.setUint32(2, counter, false);
 
+    let payloadToEncrypt = frameData;
+    if (this.padToBlockSize > 0) {
+      // PKCS-style length-prefixed block quantization (RFC 9605 audio padding)
+      const originalLength = frameData.byteLength;
+      const targetLength = Math.max(
+        this.padToBlockSize,
+        Math.ceil((originalLength + 2) / this.padToBlockSize) * this.padToBlockSize
+      );
+      const padded = new Uint8Array(targetLength);
+      const view = new DataView(padded.buffer);
+      view.setUint16(0, originalLength, false);
+      padded.set(frameData, 2);
+      if (targetLength > originalLength + 2) {
+        globalThis.crypto.getRandomValues(padded.subarray(originalLength + 2));
+      }
+      payloadToEncrypt = padded;
+    }
+
     const ciphertextBuffer = await globalThis.crypto.subtle.encrypt(
       {
         name: 'AES-GCM',
@@ -122,7 +142,7 @@ export class SFrameCipher {
         tagLength: 128,
       },
       key,
-      frameData as unknown as BufferSource
+      payloadToEncrypt as unknown as BufferSource
     );
 
     const result = new Uint8Array(6 + ciphertextBuffer.byteLength);
@@ -179,7 +199,16 @@ export class SFrameCipher {
 
       const t1 = performance.now();
       const latencyMicros = Math.round((t1 - t0) * 1000);
-      const result = new Uint8Array(plaintextBuffer);
+      let result = new Uint8Array(plaintextBuffer);
+
+      if (this.padToBlockSize > 0 && result.byteLength >= 2) {
+        const view = new DataView(result.buffer, result.byteOffset, result.byteLength);
+        const originalLength = view.getUint16(0, false);
+        if (originalLength <= result.byteLength - 2) {
+          result = result.subarray(2, 2 + originalLength);
+        }
+      }
+
       this.recordStats(latencyMicros, result.byteLength, false);
 
       return result;

@@ -36,6 +36,7 @@ export function App() {
     remoteDid,
     isVadActive,
     estimatedNoiseFloorDb,
+    acousticAuthenticityScore,
     simulcastTier,
     setSimulcastTier,
     abrTelemetry,
@@ -163,6 +164,9 @@ export function App() {
             onToggleNoiseSuppression={toggleNoiseSuppression}
             isVadActive={isVadActive}
             estimatedNoiseFloorDb={estimatedNoiseFloorDb}
+            acousticAuthenticityScore={acousticAuthenticityScore}
+            localDid={localDid}
+            remoteDid={remoteDid}
             simulcastTier={simulcastTier}
             onToggleAudio={toggleAudio}
             onToggleVideo={toggleVideo}
