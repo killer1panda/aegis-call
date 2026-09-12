@@ -10,7 +10,7 @@ services:
       - ./turnserver.conf:/etc/turnserver.conf:ro
       - ./certs:/etc/coturn/certs:ro
     environment:
-      - TURN_STATIC_AUTH_SECRET=${TURN_SHARED_SECRET:-aegis-dev-ephemeral-turn-secret-change-in-prod}
+      - TURN_STATIC_AUTH_SECRET=${TURN_SHARED_SECRET:?TURN_SHARED_SECRET environment variable must be set}
       - TURN_REALM=${TURN_REALM:-turn.aegiscall.io}
     healthcheck:
       test: ["CMD-SHELL", "turnutils_uclient -p 3478 -m 1 -u test -w test 127.0.0.1 || exit 0"]

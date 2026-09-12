@@ -1,6 +1,7 @@
 {
   "name": "@aegis/mobile",
   "version": "1.0.0",
+  "type": "module",
   "description": "AegisCall Native Mobile Packaging (Capacitor iOS & Android with CallKit / ConnectionService)",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

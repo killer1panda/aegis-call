@@ -120,4 +120,43 @@ describe('Aegis Signaling RoomManager', () => {
     manager.handleDisconnect(ws2 as unknown as WebSocket);
     expect(manager.getActiveRoomCount()).toBe(0);
   });
+
+  it('should broadcast messages to all other room members via broadcastToRoom', () => {
+    const manager = new RoomManager();
+    const wsAlice = new MockWebSocket();
+    const wsBob = new MockWebSocket();
+    const wsCharlie = new MockWebSocket();
+
+    manager.joinRoom('room-mls', 'alice', wsAlice as unknown as WebSocket);
+    manager.joinRoom('room-mls', 'bob', wsBob as unknown as WebSocket);
+    manager.joinRoom('room-mls', 'charlie', wsCharlie as unknown as WebSocket);
+
+    expect(manager.getSocketMeta(wsAlice as unknown as WebSocket)).toEqual({
+      peerId: 'alice',
+      roomId: 'room-mls',
+    });
+
+    manager.broadcastToRoom('room-mls', wsAlice as unknown as WebSocket, {
+      type: 'mls-commit',
+      senderPeerId: 'alice',
+      commit: { epoch: 1, action: 'ADD' },
+    });
+
+    const bobMsg = wsBob.getLastMessage();
+    expect(bobMsg).toEqual({
+      type: 'mls-commit',
+      senderPeerId: 'alice',
+      commit: { epoch: 1, action: 'ADD' },
+    });
+
+    const charlieMsg = wsCharlie.getLastMessage();
+    expect(charlieMsg).toEqual({
+      type: 'mls-commit',
+      senderPeerId: 'alice',
+      commit: { epoch: 1, action: 'ADD' },
+    });
+
+    // Alice should not receive her own broadcast
+    expect(wsAlice.getLastMessage()?.type).not.toBe('mls-commit');
+  });
 });

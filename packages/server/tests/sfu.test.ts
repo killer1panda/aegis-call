@@ -124,4 +124,35 @@ describe('AegisCall Blind Multi-Party SFU Relay', () => {
     sfu.removePeer(wsAlice as unknown as WebSocket);
     expect(sfu.getRoomStats('cleanup-room')).toBeNull();
   });
+
+  it('should route raw binary SFrame packets and parse packet structure correctly', () => {
+    const sfu = new SfuRelay();
+    const wsAlice = new MockWebSocket();
+    const wsBob = new MockWebSocket();
+
+    sfu.joinRoom('binary-room', 'alice', wsAlice as unknown as WebSocket);
+    sfu.joinRoom('binary-room', 'bob', wsBob as unknown as WebSocket);
+
+    const producer = sfu.registerProducer('binary-room', 'alice', 'video', 'key-0')!;
+    const rawFrame = new Uint8Array([0x01, 0x02, 0x03, 0x04, 0xaa, 0xbb, 0xcc, 0xdd]);
+
+    const forwarded = sfu.routeSimulcastBinaryFrame(
+      'binary-room',
+      producer.producerId,
+      'alice',
+      'high',
+      rawFrame
+    );
+
+    expect(forwarded).toBe(1);
+
+    const sentToBob = wsBob.sentMessages[wsBob.sentMessages.length - 1];
+    expect(Buffer.isBuffer(sentToBob)).toBe(true);
+
+    const parsed = SfuRelay.parseBinaryPacket(sentToBob as Buffer);
+    expect(parsed).not.toBeNull();
+    expect(parsed?.producerId).toBe(producer.producerId);
+    expect(parsed?.tier).toBe('high');
+    expect(parsed?.payload).toEqual(rawFrame);
+  });
 });

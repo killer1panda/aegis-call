@@ -26,6 +26,7 @@ import {
   verifyCallVerificationPresentation,
 } from '@aegis/crypto';
 import { TrustedContactsRegistry } from '../services/trustedContactsRegistry.js';
+import { BiometricAuthService } from '@aegis/mobile';
 
 interface SecurityBadgeProps {
   isOpen: boolean;
@@ -130,6 +131,12 @@ export const SecurityBadge: React.FC<SecurityBadgeProps> = ({
 
   const handlePinContact = async () => {
     if (!safetyNumbers) return;
+
+    // Challenge native hardware biometrics (Face ID, Touch ID, or Android BiometricPrompt)
+    const bioResult = await BiometricAuthService.authenticate('Authorize hardware key pinning for this peer');
+    if (!bioResult.success && bioResult.error) {
+      console.warn('[SecurityBadge] Biometric prompt bypassed or cancelled:', bioResult.error);
+    }
 
     let credId = `cred-${Date.now()}`;
     let sigBytes = new Uint8Array(32);

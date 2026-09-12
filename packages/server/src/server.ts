@@ -6,7 +6,7 @@ import { RoomManager } from './roomManager.js';
 import { ClientMessage, ServerMessage } from './types.js';
 
 import { generateEphemeralTurnCredentials } from './turnCredentials.js';
-import { sfuRelayRouter } from './sfuRelay.js';
+import { sfuRelayRouter, SfuRelay } from './sfuRelay.js';
 
 export function createServer(): FastifyInstance {
   const server = Fastify({
@@ -70,6 +70,24 @@ export function createServer(): FastifyInstance {
             }
           }
 
+          // Zero-Copy Binary SFrame Packet Multiplexing Check
+          if (Buffer.isBuffer(rawData) && rawData.length > 3 && rawData[0] === 0x53) {
+            const meta = roomManager.getSocketMeta(socket);
+            if (meta) {
+              const parsed = SfuRelay.parseBinaryPacket(rawData);
+              if (parsed) {
+                sfuRelayRouter.routeSimulcastBinaryFrame(
+                  meta.roomId,
+                  parsed.producerId,
+                  meta.peerId,
+                  parsed.tier,
+                  parsed.payload
+                );
+                return;
+              }
+            }
+          }
+
           const message: ClientMessage = JSON.parse(rawData.toString());
 
           switch (message.type) {
@@ -119,6 +137,18 @@ export function createServer(): FastifyInstance {
                 message.producerId,
                 message.preferredTier
               );
+              break;
+            }
+
+            case 'mls-commit': {
+              const meta = roomManager.getSocketMeta(socket);
+              if (meta) {
+                roomManager.broadcastToRoom(message.roomId, socket, {
+                  type: 'mls-commit',
+                  senderPeerId: meta.peerId,
+                  commit: message.commit,
+                });
+              }
               break;
             }
 

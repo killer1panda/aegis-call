@@ -123,6 +123,25 @@ export class RoomManager {
     return room ? Array.from(room.keys()) : [];
   }
 
+  public getSocketMeta(socket: WebSocket): { peerId: string; roomId: string } | undefined {
+    return this.socketToPeer.get(socket);
+  }
+
+  public broadcastToRoom(
+    roomId: string,
+    excludeSocket: WebSocket | null,
+    message: ServerMessage
+  ): void {
+    const room = this.rooms.get(roomId);
+    if (!room) return;
+
+    for (const session of room.values()) {
+      if (session.socket !== excludeSocket && session.socket.readyState === WebSocket.OPEN) {
+        this.send(session.socket, message);
+      }
+    }
+  }
+
   private send(socket: WebSocket, message: ServerMessage): void {
     if (socket.readyState === WebSocket.OPEN) {
       socket.send(JSON.stringify(message));

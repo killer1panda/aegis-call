@@ -226,6 +226,87 @@ export class SfuRelay {
   }
 
   /**
+   * Routes raw binary SFrame media packets across participants without JSON serialization,
+   * eliminating 33% Hex/Base64 inflation and TCP string processing overhead.
+   */
+  public routeSimulcastBinaryFrame(
+    roomId: string,
+    producerId: string,
+    senderPeerId: string,
+    tier: SimulcastTier,
+    binaryPayload: Uint8Array
+  ): number {
+    const room = this.rooms.get(roomId);
+    if (!room) return 0;
+
+    let forwardedCount = 0;
+    const producerBytes = Buffer.from(producerId, 'utf-8');
+    const tierCode = tier === 'low' ? 1 : tier === 'medium' ? 2 : 3;
+
+    // Binary packet header: [0x53 ('S'), tierCode, producerLen, ...producerBytes]
+    const header = Buffer.alloc(3 + producerBytes.length);
+    header[0] = 0x53;
+    header[1] = tierCode;
+    header[2] = producerBytes.length;
+    producerBytes.copy(header, 3);
+
+    const binaryPacket = Buffer.concat([header, Buffer.from(binaryPayload)]);
+
+    for (const [peerId, socket] of room.peers.entries()) {
+      if (peerId === senderPeerId || socket.readyState !== WebSocket.OPEN) continue;
+
+      const consumerId = `cons-${peerId}-${producerId}`;
+      let consumer = room.consumers.get(consumerId);
+      if (!consumer) {
+        consumer = {
+          consumerId,
+          peerId,
+          producerId,
+          preferredTier: 'high',
+          framesForwarded: 0,
+          framesDropped: 0,
+        };
+        room.consumers.set(consumerId, consumer);
+      }
+      const targetTier = consumer.preferredTier || 'high';
+
+      const shouldForward = targetTier === tier || (targetTier === 'high' && tier === 'medium');
+      if (shouldForward) {
+        socket.send(binaryPacket);
+        consumer.framesForwarded = (consumer.framesForwarded || 0) + 1;
+        forwardedCount++;
+      } else {
+        consumer.framesDropped = (consumer.framesDropped || 0) + 1;
+      }
+    }
+
+    return forwardedCount;
+  }
+
+  /**
+   * Decodes a binary SFrame multiplexed packet:
+   * [0]: 0x53 ('S')
+   * [1]: tier (1: low, 2: medium, 3: high)
+   * [2]: producerIdLength (N)
+   * [3..3+N-1]: producerId string
+   * [3+N..]: raw binary payload
+   */
+  public static parseBinaryPacket(buffer: Buffer | Uint8Array): {
+    producerId: string;
+    tier: SimulcastTier;
+    payload: Uint8Array;
+  } | null {
+    if (buffer.length < 4 || buffer[0] !== 0x53) return null;
+    const tierCode = buffer[1];
+    const tier: SimulcastTier = tierCode === 1 ? 'low' : tierCode === 2 ? 'medium' : 'high';
+    const prodLen = buffer[2];
+    if (buffer.length < 3 + prodLen) return null;
+    const producerId = Buffer.from(buffer.subarray(3, 3 + prodLen)).toString('utf-8');
+    const payload = new Uint8Array(buffer.subarray(3 + prodLen));
+    return { producerId, tier, payload };
+  }
+
+  /**
    * Retrieves frame forwarding and drop telemetry for a specific peer consumer.
    */
   public getConsumerMetrics(

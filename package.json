@@ -7,7 +7,7 @@
   ],
   "scripts": {
     "dev": "concurrently -n server,client -c green,cyan \"npm run dev -w @aegis/server\" \"npm run dev -w @aegis/client\"",
-    "build": "npm run build -w @aegis/crypto && npm run build -w @aegis/server && npm run build -w @aegis/client && npm run build -w @aegis/mobile",
+    "build": "npm run build -w @aegis/crypto && npm run build -w @aegis/mobile && npm run build -w @aegis/server && npm run build -w @aegis/client",
     "test": "vitest run",
     "test:watch": "vitest",
     "benchmark": "npm run benchmark -w @aegis/crypto",

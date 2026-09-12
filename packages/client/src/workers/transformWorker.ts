@@ -11,10 +11,26 @@ let recvAudioCipher: SFrameCipher | null = null;
 let sendVideoCipher: SFrameCipher | null = null;
 let recvVideoCipher: SFrameCipher | null = null;
 
+// Dual-epoch grace window ciphers to decrypt in-flight packets during key upgrades (e.g. Hybrid ML-KEM-768 transition)
+let prevRecvAudioCipher: SFrameCipher | null = null;
+let prevRecvVideoCipher: SFrameCipher | null = null;
+let prevRecvExpiry = 0;
+const DUAL_EPOCH_GRACE_WINDOW_MS = 3500;
+
 self.onmessage = (event: MessageEvent) => {
   const data = event.data;
 
   if (data.type === 'init-ciphers') {
+    // Retain previous receive ciphers in grace window to decode in-flight packets
+    if (recvAudioCipher) {
+      prevRecvAudioCipher = recvAudioCipher;
+      prevRecvExpiry = Date.now() + DUAL_EPOCH_GRACE_WINDOW_MS;
+    }
+    if (recvVideoCipher) {
+      prevRecvVideoCipher = recvVideoCipher;
+      prevRecvExpiry = Date.now() + DUAL_EPOCH_GRACE_WINDOW_MS;
+    }
+
     // Support both directional keys and legacy fallback
     const sendAudioKey = data.sendAudioKey || data.audioKey;
     const recvAudioKey = data.recvAudioKey || data.audioKey;
@@ -70,12 +86,27 @@ if ('RTCRtpScriptTransform' in self || 'onrtctransform' in self) {
           if (operation === 'encode') {
             const encryptedData = await cipher.encryptFrame(rawData);
             frame.data = encryptedData.buffer;
+            controller.enqueue(frame);
           } else if (operation === 'decode') {
-            const decryptedData = await cipher.decryptFrame(rawData);
-            frame.data = decryptedData.buffer;
+            try {
+              const decryptedData = await cipher.decryptFrame(rawData);
+              frame.data = decryptedData.buffer;
+              controller.enqueue(frame);
+            } catch (err) {
+              // Primary cipher failed; attempt fallback to prior epoch cipher if within grace window
+              const prevCipher = kind === 'audio' ? prevRecvAudioCipher : prevRecvVideoCipher;
+              if (prevCipher && Date.now() < prevRecvExpiry) {
+                try {
+                  const fallbackData = await prevCipher.decryptFrame(rawData);
+                  frame.data = fallbackData.buffer;
+                  controller.enqueue(frame);
+                  return;
+                } catch {
+                  // Fallback cipher also failed; frame is corrupt or replayed
+                }
+              }
+            }
           }
-
-          controller.enqueue(frame);
         } catch (err) {
           // Drop corrupt/replay frame safely
         }

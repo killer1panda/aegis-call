@@ -30,6 +30,7 @@ import {
 import { ReceivedFile } from '../components/FileDropModal.js';
 import { useAudioWorklet } from './useAudioWorklet.js';
 import { AdaptiveBitrateController, ABRTelemetry } from '../services/congestionController.js';
+import { CallNotificationService } from '@aegis/mobile';
 
 export type CallState =
   | 'idle'
@@ -605,6 +606,16 @@ export function useWebRTC(roomId: string) {
           }
 
           case 'peer-joined': {
+            CallNotificationService.reportIncomingCall({
+              callId: `call-${roomId}-${Date.now()}`,
+              callerDid: `peer:${msg.peerId}`,
+              callerName: `Peer (${msg.peerId.slice(0, 8)})`,
+              roomId,
+              hasVideo: true,
+              isPostQuantum: true,
+              timestamp: Date.now(),
+            }).catch(() => {});
+
             ws.send(
               JSON.stringify({
                 type: 'signal',
@@ -753,6 +764,7 @@ export function useWebRTC(roomId: string) {
 
 
           case 'peer-left': {
+            CallNotificationService.endCall(`call-${roomId}`);
             setRemoteStream(null);
             setCallState('ended');
             break;
@@ -790,6 +802,36 @@ export function useWebRTC(roomId: string) {
   }, [roomId, localStream, initLocalMedia, initWorker, createPeerConnection]);
 
   // 7. Live WebRTC Stats Poller
+  const applyVideoEncodingTier = async (tier: 'high' | 'medium' | 'low') => {
+    const pc = pcRef.current;
+    if (!pc) return;
+    try {
+      const senders = pc.getSenders();
+      const videoSender = senders.find((s) => s.track?.kind === 'video');
+      if (!videoSender) return;
+
+      const params = videoSender.getParameters();
+      if (params.encodings && params.encodings.length > 0) {
+        const bitrateMap: Record<string, number> = {
+          high: 2_500_000,
+          medium: 800_000,
+          low: 250_000,
+        };
+        params.encodings[0].maxBitrate = bitrateMap[tier] || 1_200_000;
+        if (tier === 'low') {
+          params.encodings[0].scaleResolutionDownBy = 2.0;
+        } else if (tier === 'medium') {
+          params.encodings[0].scaleResolutionDownBy = 1.5;
+        } else {
+          params.encodings[0].scaleResolutionDownBy = 1.0;
+        }
+        await videoSender.setParameters(params);
+      }
+    } catch {
+      // Best-effort encoder parameter adjustment
+    }
+  };
+
   const startStatsPolling = () => {
     if (statsIntervalRef.current) clearInterval(statsIntervalRef.current);
 
@@ -857,6 +899,7 @@ export function useWebRTC(roomId: string) {
 
           if (simulcastTier === 'auto' && adaptedTier !== effectiveSimulcastTierRef.current) {
             effectiveSimulcastTierRef.current = adaptedTier;
+            applyVideoEncodingTier(adaptedTier);
             if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
               socketRef.current.send(
                 JSON.stringify({
@@ -1091,6 +1134,7 @@ export function useWebRTC(roomId: string) {
     }
     const targetTier = tier === 'auto' ? abrControllerRef.current.getCurrentTier() : tier;
     effectiveSimulcastTierRef.current = targetTier;
+    applyVideoEncodingTier(targetTier);
 
     if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
       socketRef.current.send(
