@@ -7,6 +7,8 @@ import { ClientMessage, ServerMessage } from './types.js';
 
 import { generateEphemeralTurnCredentials } from './turnCredentials.js';
 import { sfuRelayRouter, SfuRelay } from './sfuRelay.js';
+import { OHttpRelay } from './ohttpRelay.js';
+import { PushService } from './pushService.js';
 
 export function createServer(): FastifyInstance {
   const server = Fastify({
@@ -41,6 +43,12 @@ export function createServer(): FastifyInstance {
     const peerId = (request.query as { peerId?: string })?.peerId || `peer-${Date.now()}`;
     return generateEphemeralTurnCredentials(peerId);
   });
+
+  // RFC 9458 Oblivious HTTP Relay & MASQUE Privacy Proxy
+  OHttpRelay.registerRoutes(server);
+
+  // Mobile VoIP Push Notification Gateway (APNs VoIP & FCM Data-Only)
+  PushService.registerRoutes(server);
 
   // WebSocket signaling gateway
   const socketRateMap = new WeakMap<WebSocket, { count: number; resetAt: number; joins: number }>();

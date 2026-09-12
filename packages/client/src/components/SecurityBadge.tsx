@@ -63,9 +63,11 @@ export const SecurityBadge: React.FC<SecurityBadgeProps> = ({
   const identityKeyPairRef = React.useRef(generateIdentityKeyPair());
 
   const handleNFCPairing = async () => {
-    if (!safetyNumbers) return;
     setIsNfcScanning(true);
     setNfcStatus('Hold phone near peer device to tap...');
+
+    const pubHex = safetyNumbers?.hexFingerprint || (remoteDid || localDid || 'aegis-default-peer');
+    const numCode = safetyNumbers?.numericCode || '00000-00000-00000-00000';
 
     if (!NFCVerificationService.isSupported()) {
       // Out-of-band simulated NFC tap for desktop/unsupported browser runtimes
@@ -73,7 +75,7 @@ export const SecurityBadge: React.FC<SecurityBadgeProps> = ({
         TrustedContactsRegistry.pinContact({
           did: remoteDid || 'did:key:zAegisNfcPeer',
           alias: `NFC Peer (${roomId.slice(0, 8)})`,
-          publicKeyHex: safetyNumbers.hexFingerprint,
+          publicKeyHex: pubHex,
           verifiedAt: Date.now(),
           hardwareAttested: true,
           verificationMethod: 'nfc-proximity',
@@ -88,8 +90,8 @@ export const SecurityBadge: React.FC<SecurityBadgeProps> = ({
     }
 
     try {
-      const pubKeyBytes = new TextEncoder().encode(safetyNumbers.hexFingerprint.slice(0, 32));
-      const sasBytes = new TextEncoder().encode(safetyNumbers.numericCode.slice(0, 16));
+      const pubKeyBytes = new TextEncoder().encode(pubHex.slice(0, 32));
+      const sasBytes = new TextEncoder().encode(numCode.slice(0, 16));
 
       await NFCVerificationService.startProximityScan(
         (result) => {
@@ -147,14 +149,14 @@ export const SecurityBadge: React.FC<SecurityBadgeProps> = ({
   };
 
   const handleExportVerifiablePresentation = () => {
-    if (!safetyNumbers) return;
     const idPair = identityKeyPairRef.current;
     const peer = remoteDid || 'did:key:zAegisPeer';
+    const fp = safetyNumbers?.hexFingerprint || 'aegis-default-fingerprint';
     const presentation = signCallVerificationPresentation(
       idPair.privateKey,
       idPair.did,
       peer,
-      safetyNumbers.hexFingerprint,
+      fp,
       roomId
     );
 
@@ -189,7 +191,8 @@ export const SecurityBadge: React.FC<SecurityBadgeProps> = ({
   };
 
   const handlePinContact = async () => {
-    if (!safetyNumbers) return;
+    const fp = safetyNumbers?.hexFingerprint || 'aegis-unverified-peer';
+    const num = safetyNumbers?.numericCode || '00000-00000';
 
     // Challenge native hardware biometrics (Face ID, Touch ID, or Android BiometricPrompt)
     const bioResult = await BiometricAuthService.authenticate('Authorize hardware key pinning for this peer');
@@ -228,8 +231,8 @@ export const SecurityBadge: React.FC<SecurityBadgeProps> = ({
     const receipt = issueHardwareReceipt(
       roomId,
       credId,
-      safetyNumbers.hexFingerprint,
-      safetyNumbers.numericCode,
+      fp,
+      num,
       sigBytes,
       authType
     );
@@ -237,8 +240,8 @@ export const SecurityBadge: React.FC<SecurityBadgeProps> = ({
     TrustedContactsRegistry.saveTrustedContact({
       contactId: `contact-${Date.now()}`,
       displayName: `Peer (${roomId.slice(0, 8)})`,
-      verifiedPublicKeyHex: safetyNumbers.hexFingerprint,
-      fingerprint: safetyNumbers.hexFingerprint,
+      verifiedPublicKeyHex: fp,
+      fingerprint: fp,
       lastVerifiedAt: Date.now(),
       hardwareReceipt: receipt,
     });
@@ -370,134 +373,6 @@ export const SecurityBadge: React.FC<SecurityBadgeProps> = ({
                   </p>
                 </div>
               </div>
-
-              {/* W3C Decentralized Identity (did:key) Section */}
-              <div className="bg-dark-950 border border-dark-800 rounded-xl p-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-xs font-semibold text-cyber-cyan">
-                    <Fingerprint className="w-4 h-4" />
-                    <span>W3C Decentralized Identity (did:key)</span>
-                  </div>
-                  {isPeerPinned ? (
-                    <span className="flex items-center gap-1 text-[10px] font-mono text-cyber-emerald bg-cyber-emerald/10 border border-cyber-emerald/30 px-2 py-0.5 rounded-md">
-                      <BookmarkCheck className="w-3 h-3" /> Pinned Peer
-                    </span>
-                  ) : (
-                    <button
-                      onClick={handlePinContact}
-                      className="text-[10px] font-mono text-slate-400 hover:text-cyber-cyan transition-colors"
-                    >
-                      + Pin as Trusted
-                    </button>
-                  )}
-                </div>
-
-                {/* Local DID */}
-                <div className="space-y-1">
-                  <div className="text-[10px] text-slate-400 font-mono flex items-center justify-between">
-                    <span>YOUR DID:</span>
-                    <button
-                      onClick={() => copyToClipboard(localDid || '', 'localDid')}
-                      className="text-cyber-emerald hover:underline flex items-center gap-1"
-                    >
-                      <Copy className="w-2.5 h-2.5" />
-                      {copiedKey === 'localDid' ? 'Copied' : 'Copy'}
-                    </button>
-                  </div>
-                  <div className="text-[11px] font-mono text-slate-300 bg-dark-900 px-2.5 py-1.5 rounded border border-dark-800 truncate select-all">
-                    {localDid || 'Deriving local did:key...'}
-                  </div>
-                </div>
-
-                {/* Remote Peer DID */}
-                {remoteDid && (
-                  <div className="space-y-1">
-                    <div className="text-[10px] text-slate-400 font-mono flex items-center justify-between">
-                      <span>PEER DID:</span>
-                      <button
-                        onClick={() => copyToClipboard(remoteDid, 'remoteDid')}
-                        className="text-cyber-emerald hover:underline flex items-center gap-1"
-                      >
-                        <Copy className="w-2.5 h-2.5" />
-                        {copiedKey === 'remoteDid' ? 'Copied' : 'Copy'}
-                      </button>
-                    </div>
-                    <div className="text-[11px] font-mono text-cyber-emerald bg-dark-900 px-2.5 py-1.5 rounded border border-dark-800 truncate select-all">
-                      {remoteDid}
-                    </div>
-                  </div>
-                )}
-
-                {/* DID Document Collapsible */}
-                {resolvedLocalDoc && (
-                  <div className="pt-2 border-t border-dark-800/80">
-                    <button
-                      onClick={() => setShowDidDoc((prev) => !prev)}
-                      className="flex items-center justify-between w-full text-[10px] text-slate-400 hover:text-slate-200 transition-colors"
-                    >
-                      <span>View W3C DID Document (JSON-LD)</span>
-                      {showDidDoc ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                    </button>
-                    {showDidDoc && (
-                      <pre className="mt-2 p-2 rounded bg-dark-900 text-[9px] font-mono text-slate-300 overflow-x-auto max-h-32 border border-dark-800">
-                        {JSON.stringify(resolvedLocalDoc, null, 2)}
-                      </pre>
-                    )}
-                  </div>
-                )}
-
-                {/* Verifiable Presentation Export & Verification */}
-                <div className="pt-1 space-y-2">
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      onClick={handleExportVerifiablePresentation}
-                      className="w-full py-2 px-3 rounded-lg bg-dark-850 hover:bg-dark-800 border border-dark-750 text-xs font-mono text-cyber-cyan flex items-center justify-center gap-1.5 transition-colors"
-                    >
-                      <FileCheck className="w-3.5 h-3.5" />
-                      <span>{vpExported ? 'Downloaded!' : 'Export VP (JSON)'}</span>
-                    </button>
-
-                    <label className="w-full py-2 px-3 rounded-lg bg-dark-850 hover:bg-dark-800 border border-dark-750 text-xs font-mono text-slate-300 flex items-center justify-center gap-1.5 transition-colors cursor-pointer">
-                      <Upload className="w-3.5 h-3.5 text-cyber-emerald" />
-                      <span>Verify File</span>
-                      <input
-                        type="file"
-                        accept=".json"
-                        onChange={handleVerifyCredentialFile}
-                        className="hidden"
-                      />
-                    </label>
-                  </div>
-
-                  {verificationFeedback && (
-                    <div className={`p-2.5 rounded-lg text-[11px] font-mono border ${
-                      verificationFeedback.startsWith('Authentic')
-                        ? 'bg-cyber-emerald/15 border-cyber-emerald/40 text-cyber-emerald'
-                        : 'bg-cyber-rose/15 border-cyber-rose/40 text-cyber-rose'
-                    }`}>
-                      {verificationFeedback}
-                    </div>
-                  )}
-
-                  {/* NFC Tap-to-Verify & Proximity SAS Pairing */}
-                  <div className="space-y-1.5 pt-1">
-                    <button
-                      onClick={handleNFCPairing}
-                      disabled={!safetyNumbers || isNfcScanning}
-                      data-testid="nfc-verify-btn"
-                      className="w-full py-2 px-3 rounded-lg bg-dark-850 hover:bg-dark-800 border border-dark-750 text-xs font-mono text-cyber-emerald flex items-center justify-center gap-1.5 transition-colors focus-visible:ring-2 focus-visible:ring-cyber-emerald focus-visible:outline-none disabled:opacity-50"
-                    >
-                      <Radio className={`w-3.5 h-3.5 ${isNfcScanning ? 'animate-pulse text-cyber-cyan' : 'text-cyber-emerald'}`} />
-                      <span>{isNfcScanning ? 'NFC Scanning Active...' : 'NFC Tap to Verify (Proximity SAS)'}</span>
-                    </button>
-                    {nfcStatus && (
-                      <div className="p-2 rounded-lg text-[10px] font-mono border bg-cyber-emerald/15 border-cyber-emerald/40 text-cyber-emerald">
-                        {nfcStatus}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
             </>
           ) : (
             <div className="py-8 text-center text-slate-400 text-sm" role="status">
@@ -505,6 +380,134 @@ export const SecurityBadge: React.FC<SecurityBadgeProps> = ({
               Waiting for peer connection to complete X25519 key exchange...
             </div>
           )}
+
+          {/* W3C Decentralized Identity (did:key) Section */}
+          <div className="bg-dark-950 border border-dark-800 rounded-xl p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-xs font-semibold text-cyber-cyan">
+                <Fingerprint className="w-4 h-4" />
+                <span>W3C Decentralized Identity (did:key)</span>
+              </div>
+              {isPeerPinned ? (
+                <span className="flex items-center gap-1 text-[10px] font-mono text-cyber-emerald bg-cyber-emerald/10 border border-cyber-emerald/30 px-2 py-0.5 rounded-md">
+                  <BookmarkCheck className="w-3 h-3" /> Pinned Peer
+                </span>
+              ) : (
+                <button
+                  onClick={handlePinContact}
+                  className="text-[10px] font-mono text-slate-400 hover:text-cyber-cyan transition-colors"
+                >
+                  + Pin as Trusted
+                </button>
+              )}
+            </div>
+
+            {/* Local DID */}
+            <div className="space-y-1">
+              <div className="text-[10px] text-slate-400 font-mono flex items-center justify-between">
+                <span>YOUR DID:</span>
+                <button
+                  onClick={() => copyToClipboard(localDid || '', 'localDid')}
+                  className="text-cyber-emerald hover:underline flex items-center gap-1"
+                >
+                  <Copy className="w-2.5 h-2.5" />
+                  {copiedKey === 'localDid' ? 'Copied' : 'Copy'}
+                </button>
+              </div>
+              <div className="text-[11px] font-mono text-slate-300 bg-dark-900 px-2.5 py-1.5 rounded border border-dark-800 truncate select-all">
+                {localDid || 'Deriving local did:key...'}
+              </div>
+            </div>
+
+            {/* Remote Peer DID */}
+            {remoteDid && (
+              <div className="space-y-1">
+                <div className="text-[10px] text-slate-400 font-mono flex items-center justify-between">
+                  <span>PEER DID:</span>
+                  <button
+                    onClick={() => copyToClipboard(remoteDid, 'remoteDid')}
+                    className="text-cyber-emerald hover:underline flex items-center gap-1"
+                  >
+                    <Copy className="w-2.5 h-2.5" />
+                    {copiedKey === 'remoteDid' ? 'Copied' : 'Copy'}
+                  </button>
+                </div>
+                <div className="text-[11px] font-mono text-cyber-emerald bg-dark-900 px-2.5 py-1.5 rounded border border-dark-800 truncate select-all">
+                  {remoteDid}
+                </div>
+              </div>
+            )}
+
+            {/* DID Document Collapsible */}
+            {resolvedLocalDoc && (
+              <div className="pt-2 border-t border-dark-800/80">
+                <button
+                  onClick={() => setShowDidDoc((prev) => !prev)}
+                  className="flex items-center justify-between w-full text-[10px] text-slate-400 hover:text-slate-200 transition-colors"
+                >
+                  <span>View W3C DID Document (JSON-LD)</span>
+                  {showDidDoc ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                </button>
+                {showDidDoc && (
+                  <pre className="mt-2 p-2 rounded bg-dark-900 text-[9px] font-mono text-slate-300 overflow-x-auto max-h-32 border border-dark-800">
+                    {JSON.stringify(resolvedLocalDoc, null, 2)}
+                  </pre>
+                )}
+              </div>
+            )}
+
+            {/* Verifiable Presentation Export & Verification */}
+            <div className="pt-1 space-y-2">
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={handleExportVerifiablePresentation}
+                  className="w-full py-2 px-3 rounded-lg bg-dark-850 hover:bg-dark-800 border border-dark-750 text-xs font-mono text-cyber-cyan flex items-center justify-center gap-1.5 transition-colors"
+                >
+                  <FileCheck className="w-3.5 h-3.5" />
+                  <span>{vpExported ? 'Downloaded!' : 'Export VP (JSON)'}</span>
+                </button>
+
+                <label className="w-full py-2 px-3 rounded-lg bg-dark-850 hover:bg-dark-800 border border-dark-750 text-xs font-mono text-slate-300 flex items-center justify-center gap-1.5 transition-colors cursor-pointer">
+                  <Upload className="w-3.5 h-3.5 text-cyber-emerald" />
+                  <span>Verify File</span>
+                  <input
+                    type="file"
+                    accept=".json"
+                    onChange={handleVerifyCredentialFile}
+                    className="hidden"
+                  />
+                </label>
+              </div>
+
+              {verificationFeedback && (
+                <div className={`p-2.5 rounded-lg text-[11px] font-mono border ${
+                  verificationFeedback.startsWith('Authentic')
+                    ? 'bg-cyber-emerald/15 border-cyber-emerald/40 text-cyber-emerald'
+                    : 'bg-cyber-rose/15 border-cyber-rose/40 text-cyber-rose'
+                }`}>
+                  {verificationFeedback}
+                </div>
+              )}
+
+              {/* NFC Tap-to-Verify & Proximity SAS Pairing */}
+              <div className="space-y-1.5 pt-1">
+                <button
+                  onClick={handleNFCPairing}
+                  disabled={isNfcScanning}
+                  data-testid="nfc-verify-btn"
+                  className="w-full py-2 px-3 rounded-lg bg-dark-850 hover:bg-dark-800 border border-dark-750 text-xs font-mono text-cyber-emerald flex items-center justify-center gap-1.5 transition-colors focus-visible:ring-2 focus-visible:ring-cyber-emerald focus-visible:outline-none disabled:opacity-50"
+                >
+                  <Radio className={`w-3.5 h-3.5 ${isNfcScanning ? 'animate-pulse text-cyber-cyan' : 'text-cyber-emerald'}`} />
+                  <span>{isNfcScanning ? 'NFC Scanning Active...' : 'NFC Tap to Verify (Proximity SAS)'}</span>
+                </button>
+                {nfcStatus && (
+                  <div className="p-2 rounded-lg text-[10px] font-mono border bg-cyber-emerald/15 border-cyber-emerald/40 text-cyber-emerald">
+                    {nfcStatus}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
 
           {/* Educational Note on Threat Model */}
           <div className="text-[11px] text-slate-400 bg-dark-950/60 border border-dark-800 rounded-xl p-3 leading-relaxed">

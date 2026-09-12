@@ -87,7 +87,18 @@ test.describe('AegisCall WebRTC E2E Protocol & Features Verification', () => {
       await expect(nfcBtnA).toBeVisible();
       await pageA.locator('button[aria-label="Close Security Modal"]').click();
 
-      // 12. Test Duress PIN & Plausible Deniability Decoy Mode
+      // 12. Test Shamir Social Key Recovery Modal & Guardian Shares
+      const socialRecoveryBtnA = pageA.locator('button[data-testid="social-recovery-btn"]');
+      await expect(socialRecoveryBtnA).toBeVisible();
+      await socialRecoveryBtnA.click();
+      await expect(pageA.getByRole('dialog', { name: /Shamir Social Key Recovery/i })).toBeVisible();
+      // Click compute shares
+      await pageA.locator('button:has-text("Compute Shamir Polynomial Shares")').click();
+      await expect(pageA.locator('text=Guardian Shares (5):')).toBeVisible();
+      await pageA.locator('button[aria-label="Close Social Recovery Modal"]').click();
+      await expect(pageA.getByRole('dialog', { name: /Shamir Social Key Recovery/i })).not.toBeVisible();
+
+      // 13. Test Duress PIN & Plausible Deniability Decoy Mode
       await duressBtnA.click();
       await expect(pageA.getByRole('dialog', { name: /Duress/i })).toBeVisible();
       

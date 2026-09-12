@@ -10,6 +10,7 @@ import { WhiteboardModal } from './components/WhiteboardModal.js';
 import { ScratchpadModal } from './components/ScratchpadModal.js';
 import { DuressUnlockModal } from './components/DuressUnlockModal.js';
 import { HardwareGateModal } from './components/HardwareGateModal.js';
+import { SocialRecoveryModal } from './components/SocialRecoveryModal.js';
 import { useWebRTC } from './hooks/useWebRTC.js';
 import { useLiveCaptions } from './hooks/useLiveCaptions.js';
 import { useVideoPrivacyMask } from './hooks/useVideoPrivacyMask.js';
@@ -29,6 +30,7 @@ export function App() {
   const [isWhiteboardOpen, setIsWhiteboardOpen] = useState(false);
   const [isScratchpadOpen, setIsScratchpadOpen] = useState(false);
   const [isDuressOpen, setIsDuressOpen] = useState(false);
+  const [isSocialRecoveryOpen, setIsSocialRecoveryOpen] = useState(false);
   const [deadManTimeoutMinutes, setDeadManTimeoutMinutes] = useState(5);
 
   const {
@@ -180,6 +182,7 @@ export function App() {
         onOpenSecurity={() => setIsSecurityOpen(true)}
         onToggleHUD={() => setIsHUDOpen((prev) => !prev)}
         isHUDOpen={isHUDOpen}
+        onOpenSocialRecovery={() => setIsSocialRecoveryOpen(true)}
       />
 
       <main className="flex-1 flex flex-col">
@@ -360,6 +363,13 @@ export function App() {
         onClose={() => setIsHardwareGateOpen(false)}
         onGatePassed={handleHardwareGatePassed}
         roomId={roomId}
+      />
+
+      {/* Shamir's Secret Sharing (SSS) Social Key Recovery Modal */}
+      <SocialRecoveryModal
+        isOpen={isSocialRecoveryOpen}
+        onClose={() => setIsSocialRecoveryOpen(false)}
+        masterKeyHex={localDid || undefined}
       />
 
       {/* Decoy Mode Banner */}

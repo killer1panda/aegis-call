@@ -12,3 +12,4 @@ export * from './did.js';
 export * from './deniability.js';
 export * from './shamir.js';
 export * from './nfcPairing.js';
+export * from './acousticModem.js';
