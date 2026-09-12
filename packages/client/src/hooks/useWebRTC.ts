@@ -22,6 +22,9 @@ import {
   EncryptedMessagePayload,
   formatX25519DID,
   hexToBytes,
+  bytesToHex,
+  computeBlobChecksum,
+  CHUNK_SIZE_BYTES,
 } from '@aegis/crypto';
 
 import { ReceivedFile } from '../components/FileDropModal.js';
@@ -72,7 +75,9 @@ const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
 
 const fetchIceServers = async (peerId: string): Promise<RTCIceServer[]> => {
   try {
-    const res = await fetch(`http://localhost:4000/turn-credentials?peerId=${encodeURIComponent(peerId)}`);
+    const httpProtocol = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'https:' : 'http:';
+    const httpHost = typeof window !== 'undefined' && window.location.hostname === 'localhost' ? 'localhost:4000' : (typeof window !== 'undefined' ? window.location.host : 'localhost:4000');
+    const res = await fetch(`${httpProtocol}//${httpHost}/turn-credentials?peerId=${encodeURIComponent(peerId)}`);
     if (res.ok) {
       const creds = await res.json();
       return [
@@ -158,7 +163,9 @@ export function useWebRTC(roomId: string) {
   const sessionKeysRef = useRef<DerivedSessionKeys | null>(null);
   const directionalKeysRef = useRef<DirectionalSessionKeys | null>(null);
   const dataCipherRef = useRef<DataCipher | null>(null);
+  const recvDataCipherRef = useRef<DataCipher | null>(null);
   const fileCipherRef = useRef<FileCipher | null>(null);
+  const recvFileCipherRef = useRef<FileCipher | null>(null);
 
   const socketRef = useRef<WebSocket | null>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
@@ -314,8 +321,9 @@ export function useWebRTC(roomId: string) {
         }
 
         // Encrypted Chat Message
-        if (raw.type === 'chat-cipher' && dataCipherRef.current) {
-          const decryptedText = await dataCipherRef.current.decryptMessage(raw.payload);
+        const activeChatCipher = recvDataCipherRef.current || dataCipherRef.current;
+        if (raw.type === 'chat-cipher' && activeChatCipher) {
+          const decryptedText = await activeChatCipher.decryptMessage(raw.payload);
           const newMsg: ChatMessage = {
             id: Math.random().toString(36).substring(2, 9),
             sender: 'peer',
@@ -345,12 +353,13 @@ export function useWebRTC(roomId: string) {
         }
 
         // Incoming Encrypted File Chunk
-        if (raw.type === 'file-chunk' && fileCipherRef.current) {
+        const activeFileCipher = recvFileCipherRef.current || fileCipherRef.current;
+        if (raw.type === 'file-chunk' && activeFileCipher) {
           const chunk = raw.chunk as EncryptedFileChunk;
           const meta = incomingFileRef.current.metadata;
           if (!meta || meta.fileId !== chunk.fileId) return;
 
-          const decryptedChunk = await fileCipherRef.current.decryptChunk(chunk);
+          const decryptedChunk = await activeFileCipher.decryptChunk(chunk);
           incomingFileRef.current.chunks.set(chunk.chunkIndex, decryptedChunk);
 
           const progress = Math.round((incomingFileRef.current.chunks.size / meta.totalChunks) * 100);
@@ -369,7 +378,7 @@ export function useWebRTC(roomId: string) {
             }
 
             try {
-              const fullFile = fileCipherRef.current.verifyAndReassemble(sortedChunks, meta.sha256Checksum);
+              const fullFile = activeFileCipher.verifyAndReassemble(sortedChunks, meta.sha256Checksum);
               const blob = new Blob([fullFile.buffer as ArrayBuffer], { type: meta.mimeType });
               const blobUrl = URL.createObjectURL(blob);
               blobUrlsRef.current.push(blobUrl);
@@ -424,7 +433,12 @@ export function useWebRTC(roomId: string) {
         keys.sendDataKey,
         keyPairRef.current!.publicKeyHex.slice(0, 8)
       );
+      recvDataCipherRef.current = new DataCipher(
+        keys.recvDataKey,
+        bytesToHex(peerPublicKeyBytes).slice(0, 8)
+      );
       fileCipherRef.current = new FileCipher(keys.sendDataKey);
+      recvFileCipherRef.current = new FileCipher(keys.recvDataKey);
 
       const targetWorker = worker || workerRef.current;
       if (targetWorker) {
@@ -955,17 +969,14 @@ export function useWebRTC(roomId: string) {
     }
   };
 
-  // 10. Send Encrypted File Chunks
+  // 10. Send Encrypted File Chunks with O(1) Memory Chunk-Streaming
   const sendFile = async (file: globalThis.File) => {
     if (!dataChannelRef.current || dataChannelRef.current.readyState !== 'open' || !fileCipherRef.current) {
       return;
     }
 
     const cipher = fileCipherRef.current;
-    const arrayBuffer = await file.arrayBuffer();
-    const fileBytes = new Uint8Array(arrayBuffer);
-
-    const { metadata, chunks } = await cipher.prepareFile(fileBytes, file.name, file.type);
+    const totalChunks = Math.ceil(file.size / CHUNK_SIZE_BYTES) || 1;
 
     setTransferProgress({
       active: true,
@@ -973,6 +984,10 @@ export function useWebRTC(roomId: string) {
       fileName: file.name,
       mode: 'sending',
     });
+
+    // Stream-hash the file without buffering whole payload into memory
+    const checksum = await computeBlobChecksum(file);
+    const metadata = cipher.prepareFileMetadata(file.size, file.name, file.type || 'application/octet-stream', checksum);
 
     // Send metadata announcement first
     dataChannelRef.current.send(
@@ -982,9 +997,20 @@ export function useWebRTC(roomId: string) {
       })
     );
 
-    // Stream each encrypted chunk with pacing
-    for (let i = 0; i < chunks.length; i++) {
-      const encryptedChunk = await cipher.encryptChunk(metadata.fileId, i, metadata.totalChunks, chunks[i]);
+    // Stream each slice incrementally
+    for (let i = 0; i < totalChunks; i++) {
+      const start = i * CHUNK_SIZE_BYTES;
+      const end = Math.min(file.size, start + CHUNK_SIZE_BYTES);
+      const sliceBlob = file.slice(start, end);
+      const sliceBuffer = await sliceBlob.arrayBuffer();
+      const chunkBytes = new Uint8Array(sliceBuffer);
+
+      const encryptedChunk = await cipher.encryptChunk(metadata.fileId, i, totalChunks, chunkBytes);
+
+      // Backpressure check on data channel buffer (wait if buffer exceeds 1MB)
+      while (dataChannelRef.current && dataChannelRef.current.bufferedAmount > 1024 * 1024) {
+        await new Promise((r) => setTimeout(r, 20));
+      }
 
       dataChannelRef.current.send(
         JSON.stringify({
@@ -993,7 +1019,7 @@ export function useWebRTC(roomId: string) {
         })
       );
 
-      const percent = Math.round(((i + 1) / chunks.length) * 100);
+      const percent = Math.round(((i + 1) / totalChunks) * 100);
       setTransferProgress({
         active: true,
         percent,
@@ -1001,7 +1027,7 @@ export function useWebRTC(roomId: string) {
         mode: 'sending',
       });
 
-      // Micro-pause to prevent WebRTC DataChannel buffer flooding
+      // Micro-pause to yield main thread every 10 chunks
       if (i % 10 === 0 && i > 0) {
         await new Promise((r) => setTimeout(r, 5));
       }

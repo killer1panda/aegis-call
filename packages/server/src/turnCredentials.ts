@@ -16,8 +16,24 @@ export interface TurnConfig {
   defaultTtlSeconds?: number;
 }
 
+const devEphemeralSecret = crypto.randomBytes(32).toString('hex');
+
+export function resolveTurnSecret(): string {
+  if (process.env.TURN_SHARED_SECRET) {
+    return process.env.TURN_SHARED_SECRET;
+  }
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error(
+      '[Aegis Security] TURN_SHARED_SECRET environment variable is strictly required in production mode.'
+    );
+  }
+  return devEphemeralSecret;
+}
+
 const DEFAULT_TURN_CONFIG: TurnConfig = {
-  secret: process.env.TURN_SHARED_SECRET || 'aegis-dev-ephemeral-turn-secret-change-in-prod',
+  get secret() {
+    return resolveTurnSecret();
+  },
   realm: process.env.TURN_REALM || 'turn.aegiscall.io',
   stunUrl: 'stun:turn.aegiscall.io:3478',
   turnUrls: [

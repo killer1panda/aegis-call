@@ -6,6 +6,11 @@ export class RoomManager {
   private rooms: Map<string, Map<string, PeerSession>> = new Map();
   // Map of socket -> { peerId, roomId } for rapid teardown on disconnect
   private socketToPeer: Map<WebSocket, { peerId: string; roomId: string }> = new Map();
+  private maxPeers: number;
+
+  constructor(maxPeers: number = 8) {
+    this.maxPeers = maxPeers;
+  }
 
   public joinRoom(
     roomId: string,
@@ -19,8 +24,8 @@ export class RoomManager {
       this.rooms.set(roomId, room);
     }
 
-    // Strict 1-to-1 calling limit (maximum 2 participants)
-    if (room.size >= 2 && !room.has(peerId)) {
+    // Room capacity limit (defaults to 8 peers matching SFU Relay topology)
+    if (room.size >= this.maxPeers && !room.has(peerId)) {
       return { success: false, error: 'ROOM_FULL' };
     }
 

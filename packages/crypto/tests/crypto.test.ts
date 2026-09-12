@@ -165,5 +165,31 @@ describe('Aegis Cryptographic Engine', () => {
     }
   });
 
+  it('should encrypt and decrypt DataChannel messages bidirectionally using directional session keys', async () => {
+    const roomId = 'room-directional-chat';
+    const alice = generateEphemeralKeyPair();
+    const bob = generateEphemeralKeyPair();
+
+    const aliceKeys = deriveDirectionalSessionKeys(alice.privateKey, alice.publicKey, bob.publicKey, roomId);
+    const bobKeys = deriveDirectionalSessionKeys(bob.privateKey, bob.publicKey, alice.publicKey, roomId);
+
+    const aliceSendCipher = new DataCipher(aliceKeys.sendDataKey, alice.publicKeyHex.slice(0, 8));
+    const bobRecvCipher = new DataCipher(bobKeys.recvDataKey, alice.publicKeyHex.slice(0, 8));
+
+    const bobSendCipher = new DataCipher(bobKeys.sendDataKey, bob.publicKeyHex.slice(0, 8));
+    const aliceRecvCipher = new DataCipher(aliceKeys.recvDataKey, bob.publicKeyHex.slice(0, 8));
+
+    // Alice -> Bob
+    const aliceMsg = 'Directional secrecy from Alice to Bob';
+    const payloadA = await aliceSendCipher.encryptMessage(aliceMsg);
+    const decryptedAtBob = await bobRecvCipher.decryptMessage(payloadA);
+    expect(decryptedAtBob).toBe(aliceMsg);
+
+    // Bob -> Alice
+    const bobMsg = 'Directional reply from Bob to Alice';
+    const payloadB = await bobSendCipher.encryptMessage(bobMsg);
+    const decryptedAtAlice = await aliceRecvCipher.decryptMessage(payloadB);
+    expect(decryptedAtAlice).toBe(bobMsg);
+  });
 });
 

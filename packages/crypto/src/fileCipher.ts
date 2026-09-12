@@ -73,6 +73,28 @@ export class FileCipher {
   }
 
   /**
+   * Generates file transmission metadata for streaming slice-by-slice transmission
+   * without requiring the entire file to be buffered in memory.
+   */
+  public prepareFileMetadata(
+    fileSize: number,
+    name: string,
+    mimeType: string = 'application/octet-stream',
+    checksum: string
+  ): FileMetadata {
+    const fileId = `file-${Math.random().toString(36).substring(2, 10)}`;
+    const totalChunks = Math.ceil(fileSize / CHUNK_SIZE_BYTES) || 1;
+    return {
+      fileId,
+      name,
+      size: fileSize,
+      mimeType,
+      totalChunks,
+      sha256Checksum: checksum,
+    };
+  }
+
+  /**
    * Encrypts a single file chunk using AES-256-GCM.
    */
   public async encryptChunk(
@@ -149,6 +171,32 @@ export class FileCipher {
   }
 }
 
+/**
+ * Streams a Blob or File in chunks using Web Streams API and calculates
+ * its SHA-256 checksum with O(1) heap memory consumption.
+ */
+export async function computeBlobChecksum(blob: Blob): Promise<string> {
+  const hash = sha256.create();
+  if (typeof (blob as any).stream === 'function') {
+    const stream = (blob as any).stream();
+    const reader = stream.getReader();
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value) {
+        hash.update(value);
+      }
+    }
+  } else {
+    // Fallback for environments lacking Blob.stream()
+    const buffer = await blob.arrayBuffer();
+    hash.update(new Uint8Array(buffer));
+  }
+
+  return bytesToHex(hash.digest());
+}
+
 function hexToBytes(hex: string): Uint8Array {
   const bytes = new Uint8Array(hex.length / 2);
   for (let i = 0; i < bytes.length; i++) {
@@ -156,3 +204,4 @@ function hexToBytes(hex: string): Uint8Array {
   }
   return bytes;
 }
+

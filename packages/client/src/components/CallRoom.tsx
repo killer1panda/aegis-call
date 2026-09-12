@@ -93,10 +93,13 @@ export const CallRoom: React.FC<CallRoomProps> = ({
     }
   }, [remoteStream]);
 
-  // Keyboard shortcuts (A11y & Power User standard)
+  // Keyboard shortcuts (WCAG 2.1.4 Character Key Shortcuts Standard: requires modifier)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement)?.tagName)) return;
+
+      // Require Alt modifier key to satisfy WCAG 2.1.4 Character Key Shortcuts
+      if (!e.altKey && !e.metaKey && !e.ctrlKey) return;
 
       if (e.key === 'm' || e.key === 'M') {
         e.preventDefault();
@@ -132,6 +135,13 @@ export const CallRoom: React.FC<CallRoomProps> = ({
       ref={containerRef}
       className="relative flex-1 bg-dark-950 flex flex-col items-center justify-center p-4 overflow-hidden select-none"
     >
+      {/* WCAG 4.1.3 Live Region for Assistive Announcements */}
+      <div aria-live="polite" aria-atomic="true" className="sr-only">
+        {isAudioMuted ? 'Microphone muted' : 'Microphone active'},{' '}
+        {isVideoMuted ? 'Camera disabled' : 'Camera active'},{' '}
+        {isScreenSharing ? 'Screen sharing active' : 'Screen sharing inactive'}
+      </div>
+
       {/* Hidden audio element for remote peer playback */}
       <audio ref={remoteAudioRef} autoPlay playsInline aria-hidden="true" />
 
@@ -140,13 +150,14 @@ export const CallRoom: React.FC<CallRoomProps> = ({
         aria-label="Video Call Stage"
         className="relative w-full h-[calc(100vh-140px)] max-w-6xl rounded-3xl overflow-hidden bg-dark-900 border border-dark-800 shadow-2xl flex items-center justify-center"
       >
-        {/* Remote Video */}
+        {/* Remote Video - explicitly muted to prevent dual-audio comb-filtering/flanging */}
         {remoteStream ? (
           <div className={`relative w-full h-full rounded-2xl overflow-hidden transition-all duration-200 ${remoteVolume > 15 ? 'ring-4 ring-cyber-emerald/60 shadow-2xl shadow-cyber-emerald/20' : ''}`}>
             <video
               ref={remoteVideoRef}
               autoPlay
               playsInline
+              muted
               aria-label="Remote participant video feed"
               className="w-full h-full object-cover"
             />

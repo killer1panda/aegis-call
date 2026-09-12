@@ -61,4 +61,25 @@ describe('End-to-End Encrypted FileCipher', () => {
 
     await expect(bobCipher.decryptChunk(tamperedChunk)).rejects.toThrow();
   });
+
+  it('should compute blob checksum via streaming and prepare metadata without whole-file buffering', async () => {
+    const { computeBlobChecksum } = await import('../src/index.js');
+    const payload = new TextEncoder().encode('Streaming large file payload for O(1) memory testing');
+    const blob = new Blob([payload]);
+
+    const checksum = await computeBlobChecksum(blob);
+    expect(checksum).toBeDefined();
+    expect(checksum.length).toBe(64); // SHA-256 hex string
+
+    const alice = generateEphemeralKeyPair();
+    const bob = generateEphemeralKeyPair();
+    const keys = deriveSessionKeys(alice.privateKey, bob.publicKey, 'test-room');
+    const cipher = new FileCipher(keys.dataKey);
+
+    const metadata = cipher.prepareFileMetadata(payload.length, 'streamed.txt', 'text/plain', checksum);
+    expect(metadata.name).toBe('streamed.txt');
+    expect(metadata.size).toBe(payload.length);
+    expect(metadata.sha256Checksum).toBe(checksum);
+    expect(metadata.totalChunks).toBe(1);
+  });
 });

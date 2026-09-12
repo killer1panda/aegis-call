@@ -49,8 +49,8 @@ describe('Aegis Signaling RoomManager', () => {
     });
   });
 
-  it('should enforce strict 1-to-1 limit and reject 3rd peer', () => {
-    const manager = new RoomManager();
+  it('should enforce room capacity limit and reject excess peers when configured', () => {
+    const manager = new RoomManager(2);
     const ws1 = new MockWebSocket();
     const ws2 = new MockWebSocket();
     const ws3 = new MockWebSocket();
@@ -61,6 +61,19 @@ describe('Aegis Signaling RoomManager', () => {
 
     expect(result3.success).toBe(false);
     expect(result3.error).toBe('ROOM_FULL');
+  });
+
+  it('should support up to 8 peers by default for multi-party SFU conferences', () => {
+    const manager = new RoomManager();
+    for (let i = 1; i <= 8; i++) {
+      const ws = new MockWebSocket();
+      const res = manager.joinRoom('room-sfu', `peer-${i}`, ws as unknown as WebSocket);
+      expect(res.success).toBe(true);
+    }
+    const excessWs = new MockWebSocket();
+    const excessRes = manager.joinRoom('room-sfu', 'peer-9', excessWs as unknown as WebSocket);
+    expect(excessRes.success).toBe(false);
+    expect(excessRes.error).toBe('ROOM_FULL');
   });
 
   it('should route signals between participants in the same room', () => {

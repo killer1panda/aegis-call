@@ -86,5 +86,3 @@ export function verifyReceiptIntegrity(
 
   return true;
 }
-
-export { bytesToHex, hexToBytes };

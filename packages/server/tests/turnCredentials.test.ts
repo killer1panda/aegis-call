@@ -30,4 +30,31 @@ describe('RFC 5766 Ephemeral TURN Credentials & REST Endpoint', () => {
 
     await server.close();
   });
+
+  it('should enforce TURN_SHARED_SECRET requirement in production mode', async () => {
+    const prevEnv = process.env.NODE_ENV;
+    const prevSecret = process.env.TURN_SHARED_SECRET;
+    try {
+      process.env.NODE_ENV = 'production';
+      delete process.env.TURN_SHARED_SECRET;
+
+      const { resolveTurnSecret } = await import('../src/turnCredentials.js');
+      expect(() => resolveTurnSecret()).toThrow(/TURN_SHARED_SECRET environment variable is strictly required/);
+    } finally {
+      process.env.NODE_ENV = prevEnv;
+      if (prevSecret) process.env.TURN_SHARED_SECRET = prevSecret;
+    }
+  });
+
+  it('should use explicit TURN_SHARED_SECRET when provided', async () => {
+    const prevSecret = process.env.TURN_SHARED_SECRET;
+    try {
+      process.env.TURN_SHARED_SECRET = 'custom-test-secret-value';
+      const { resolveTurnSecret } = await import('../src/turnCredentials.js');
+      expect(resolveTurnSecret()).toBe('custom-test-secret-value');
+    } finally {
+      if (prevSecret) process.env.TURN_SHARED_SECRET = prevSecret;
+      else delete process.env.TURN_SHARED_SECRET;
+    }
+  });
 });
