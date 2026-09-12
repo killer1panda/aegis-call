@@ -38,6 +38,7 @@ export function App() {
     estimatedNoiseFloorDb,
     simulcastTier,
     setSimulcastTier,
+    abrTelemetry,
     messages,
     unreadChatCount,
     networkStats,
@@ -197,6 +198,7 @@ export function App() {
         cryptoStats={cryptoStats}
         simulcastTier={simulcastTier}
         onSetSimulcastTier={setSimulcastTier}
+        abrTelemetry={abrTelemetry}
       />
 
       {/* End-to-End Encrypted DataChannel Chat Drawer */}

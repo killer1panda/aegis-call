@@ -1,7 +1,8 @@
 import React from 'react';
-import { Activity, Cpu, Shield, Wifi, X, CheckCircle2, Layers } from 'lucide-react';
+import { Activity, Cpu, Shield, Wifi, X, CheckCircle2, Layers, Gauge } from 'lucide-react';
 import { NetworkStats } from '../hooks/useWebRTC.js';
 import { FrameCipherStats } from '@aegis/crypto';
+import { ABRTelemetry } from '../services/congestionController.js';
 
 interface NetworkStatsHUDProps {
   isOpen: boolean;
@@ -10,6 +11,7 @@ interface NetworkStatsHUDProps {
   cryptoStats: { audio?: FrameCipherStats; video?: FrameCipherStats };
   simulcastTier?: 'auto' | 'high' | 'medium' | 'low';
   onSetSimulcastTier?: (tier: 'auto' | 'high' | 'medium' | 'low') => void;
+  abrTelemetry?: ABRTelemetry | null;
 }
 
 export const NetworkStatsHUD: React.FC<NetworkStatsHUDProps> = ({
@@ -19,6 +21,7 @@ export const NetworkStatsHUD: React.FC<NetworkStatsHUDProps> = ({
   cryptoStats,
   simulcastTier = 'auto',
   onSetSimulcastTier,
+  abrTelemetry,
 }) => {
   if (!isOpen) return null;
 
@@ -150,18 +153,47 @@ export const NetworkStatsHUD: React.FC<NetworkStatsHUDProps> = ({
           </div>
         </div>
 
-        {/* Blind SFU Encrypted Simulcast Controls */}
+        {/* Blind SFU Encrypted Simulcast & ABR Controls */}
         <div>
-          <div className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">
-            <Layers className="w-3.5 h-3.5 text-cyber-cyan" />
-            <span>Blind SFU Encrypted Simulcast</span>
+          <div className="flex items-center justify-between text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">
+            <div className="flex items-center gap-1.5">
+              <Layers className="w-3.5 h-3.5 text-cyber-cyan" />
+              <span>Simulcast & ABR Controller</span>
+            </div>
+            {abrTelemetry && (
+              <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded border ${
+                simulcastTier === 'auto'
+                  ? 'bg-cyber-emerald/10 border-cyber-emerald/30 text-cyber-emerald'
+                  : 'bg-cyber-amber/10 border-cyber-amber/30 text-cyber-amber'
+              }`}>
+                {simulcastTier === 'auto' ? 'Auto-GCC' : 'Manual'}
+              </span>
+            )}
           </div>
 
           <div className="p-3 rounded-xl bg-dark-950/70 border border-dark-800 space-y-2.5">
             <div className="flex items-center justify-between text-[11px]">
               <span className="text-slate-400">Target Layer:</span>
-              <span className="text-cyber-cyan font-bold uppercase">{simulcastTier}</span>
+              <div className="flex items-center gap-1.5">
+                <span className="text-cyber-cyan font-bold uppercase">{simulcastTier}</span>
+                {abrTelemetry && simulcastTier === 'auto' && (
+                  <span className="text-[10px] font-mono text-slate-400">
+                    ({abrTelemetry.effectiveResolution})
+                  </span>
+                )}
+              </div>
             </div>
+
+            {abrTelemetry && abrTelemetry.bandwidthSavedPercent > 0 && (
+              <div className="flex items-center justify-between text-[11px] bg-cyber-emerald/10 border border-cyber-emerald/20 px-2 py-1 rounded-lg">
+                <span className="text-cyber-emerald flex items-center gap-1">
+                  <Gauge className="w-3 h-3" /> Downlink Optimization:
+                </span>
+                <span className="text-cyber-emerald font-bold font-mono">
+                  +{abrTelemetry.bandwidthSavedPercent}% bandwidth conserved
+                </span>
+              </div>
+            )}
 
             {onSetSimulcastTier && (
               <div className="grid grid-cols-4 gap-1.5 pt-1">
@@ -180,8 +212,15 @@ export const NetworkStatsHUD: React.FC<NetworkStatsHUDProps> = ({
                 ))}
               </div>
             )}
+
+            {abrTelemetry?.lastAdaptationReason && (
+              <div className="text-[10px] text-cyber-amber font-mono bg-dark-900 px-2 py-1 rounded border border-dark-800">
+                Trigger: {abrTelemetry.lastAdaptationReason}
+              </div>
+            )}
+
             <div className="text-[10px] text-slate-400 leading-tight pt-1">
-              SFU blindly filters encrypted spatial frames based on downstream tier without payload decryption.
+              SFU blindly filters encrypted spatial layers based on consumer downlink state without decrypting SFrame payloads.
             </div>
           </div>
         </div>

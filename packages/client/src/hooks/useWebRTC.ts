@@ -16,6 +16,7 @@ import {
 } from '@aegis/crypto';
 import { ReceivedFile } from '../components/FileDropModal.js';
 import { useAudioWorklet } from './useAudioWorklet.js';
+import { AdaptiveBitrateController, ABRTelemetry } from '../services/congestionController.js';
 
 export type CallState =
   | 'idle'
@@ -77,6 +78,7 @@ export function useWebRTC(roomId: string) {
   const [localDid, setLocalDid] = useState<string | null>(null);
   const [remoteDid, setRemoteDid] = useState<string | null>(null);
   const [simulcastTier, setSimulcastTierState] = useState<'auto' | 'high' | 'medium' | 'low'>('auto');
+  const [abrTelemetry, setAbrTelemetry] = useState<ABRTelemetry | null>(null);
 
   const [isAudioMuted, setIsAudioMuted] = useState(false);
   const [isVideoMuted, setIsVideoMuted] = useState(false);
@@ -133,6 +135,8 @@ export function useWebRTC(roomId: string) {
 
   const statsIntervalRef = useRef<number | null>(null);
   const lastBytesRef = useRef<{ bytes: number; time: number }>({ bytes: 0, time: Date.now() });
+  const abrControllerRef = useRef<AdaptiveBitrateController>(new AdaptiveBitrateController('high'));
+  const effectiveSimulcastTierRef = useRef<'high' | 'medium' | 'low'>('high');
 
   // Incoming file assembly buffer
   const incomingFileRef = useRef<{
@@ -644,6 +648,31 @@ export function useWebRTC(roomId: string) {
           candidateType,
           cipherSuite: 'IETF SFrame + AES-256-GCM + DTLS 1.3',
         });
+
+        if (abrControllerRef.current) {
+          const adaptedTier = abrControllerRef.current.evaluateNetworkSample({
+            rttMs: rtt,
+            packetLossPercent: lossPercent,
+            bitrateKbps,
+            fps,
+          });
+
+          if (simulcastTier === 'auto' && adaptedTier !== effectiveSimulcastTierRef.current) {
+            effectiveSimulcastTierRef.current = adaptedTier;
+            if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+              socketRef.current.send(
+                JSON.stringify({
+                  type: 'sfu-set-tier',
+                  roomId,
+                  peerId: peerIdRef.current,
+                  producerId: 'video',
+                  preferredTier: adaptedTier,
+                })
+              );
+            }
+          }
+          setAbrTelemetry(abrControllerRef.current.getTelemetry());
+        }
       } catch (err) {
         // ignore
       }
@@ -829,6 +858,14 @@ export function useWebRTC(roomId: string) {
 
   const setSimulcastTier = useCallback((tier: 'auto' | 'high' | 'medium' | 'low') => {
     setSimulcastTierState(tier);
+    if (tier === 'auto') {
+      abrControllerRef.current.setMode('auto');
+    } else {
+      abrControllerRef.current.setManualTier(tier);
+    }
+    const targetTier = tier === 'auto' ? abrControllerRef.current.getCurrentTier() : tier;
+    effectiveSimulcastTierRef.current = targetTier;
+
     if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
       socketRef.current.send(
         JSON.stringify({
@@ -836,10 +873,11 @@ export function useWebRTC(roomId: string) {
           roomId,
           peerId: peerIdRef.current,
           producerId: 'video',
-          preferredTier: tier === 'auto' ? 'high' : tier,
+          preferredTier: targetTier,
         })
       );
     }
+    setAbrTelemetry(abrControllerRef.current.getTelemetry());
   }, [roomId]);
 
   const clearUnreadChat = () => setUnreadChatCount(0);
@@ -861,6 +899,7 @@ export function useWebRTC(roomId: string) {
     estimatedNoiseFloorDb,
     simulcastTier,
     setSimulcastTier,
+    abrTelemetry,
     messages,
     unreadChatCount,
     networkStats,

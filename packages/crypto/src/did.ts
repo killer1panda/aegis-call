@@ -1,3 +1,4 @@
+import { ed25519 } from '@noble/curves/ed25519';
 import { sha256 } from '@noble/hashes/sha256';
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils';
 
@@ -143,16 +144,80 @@ export function extractPublicKeyFromDID(didUri: string): Uint8Array {
   return bytes.slice(X25519_MULTICODEC_PREFIX.length);
 }
 
+// Multicodec prefix for Ed25519 public key = 0xed, 0x01
+const ED25519_MULTICODEC_PREFIX = new Uint8Array([0xed, 0x01]);
+
+/**
+ * Encodes an Ed25519 public key into a W3C did:key URI using multicodec + base58-btc (z).
+ */
+export function formatEd25519DID(publicKey: Uint8Array): string {
+  if (publicKey.length !== 32) {
+    throw new Error(`Invalid public key length for Ed25519 DID: expected 32 bytes, got ${publicKey.length}`);
+  }
+
+  const multicodec = new Uint8Array(ED25519_MULTICODEC_PREFIX.length + publicKey.length);
+  multicodec.set(ED25519_MULTICODEC_PREFIX, 0);
+  multicodec.set(publicKey, ED25519_MULTICODEC_PREFIX.length);
+
+  const base58 = encodeBase58(multicodec);
+  return `did:key:z${base58}`;
+}
+
+/**
+ * Extracts raw Ed25519 public key from a did:key:z... URI.
+ */
+export function extractEd25519PublicKey(didUri: string): Uint8Array {
+  if (!didUri.startsWith('did:key:z')) {
+    throw new Error(`Invalid did:key format: expected did:key:z..., got ${didUri}`);
+  }
+
+  const base58Str = didUri.slice('did:key:z'.length);
+  const bytes = decodeBase58(base58Str);
+
+  if (bytes.length !== ED25519_MULTICODEC_PREFIX.length + 32) {
+    throw new Error(`Invalid DID key byte length: got ${bytes.length}`);
+  }
+
+  // Verify multicodec prefix (0xed, 0x01)
+  if (bytes[0] !== ED25519_MULTICODEC_PREFIX[0] || bytes[1] !== ED25519_MULTICODEC_PREFIX[1]) {
+    throw new Error('Unsupported DID multicodec prefix: expected Ed25519 (0xed01)');
+  }
+
+  return bytes.slice(ED25519_MULTICODEC_PREFIX.length);
+}
+
+/**
+ * Generates an Ed25519 identity keypair bound to a W3C did:key identifier.
+ */
+export function generateIdentityKeyPair(): {
+  publicKey: Uint8Array;
+  privateKey: Uint8Array;
+  did: string;
+} {
+  const privateKey = ed25519.utils.randomPrivateKey();
+  const publicKey = ed25519.getPublicKey(privateKey);
+  const did = formatEd25519DID(publicKey);
+  return { publicKey, privateKey, did };
+}
+
 /**
  * Resolves a did:key into a standard W3C Decentralized Identifier (DID) Document.
  */
 export function resolveDIDDocument(didUri: string): W3CDIDDocument {
-  const publicKey = extractPublicKeyFromDID(didUri);
+  const isEd25519 = (() => {
+    try {
+      extractEd25519PublicKey(didUri);
+      return true;
+    } catch {
+      return false;
+    }
+  })();
+
   const keyId = `${didUri}#${didUri.split(':').pop()}`;
 
   const vm: W3CVerificationMethod = {
     id: keyId,
-    type: 'X25519KeyAgreementKey2020',
+    type: isEd25519 ? 'Ed25519VerificationKey2020' : 'X25519KeyAgreementKey2020',
     controller: didUri,
     publicKeyMultibase: didUri.replace('did:key:', ''),
   };
@@ -165,8 +230,16 @@ export function resolveDIDDocument(didUri: string): W3CDIDDocument {
     id: didUri,
     verificationMethod: [vm],
     authentication: [keyId],
-    keyAgreement: [keyId],
+    keyAgreement: isEd25519 ? [] : [keyId],
   };
+}
+
+/**
+ * Computes canonical SHA-256 digest of a verifiable credential payload.
+ */
+export function computeCredentialDigest(credential: VerifiablePresentation['verifiableCredential']): Uint8Array {
+  const canonicalString = `aegis-credential-v1:${credential.id}:${credential.issuer}:${credential.issuanceDate}:${credential.credentialSubject.id}:${credential.credentialSubject.verifiedPeer}:${credential.credentialSubject.sasFingerprint}:${credential.credentialSubject.roomId}`;
+  return sha256(new TextEncoder().encode(canonicalString));
 }
 
 /**
@@ -177,7 +250,7 @@ export function createCallVerificationPresentation(
   verifiedPeerDid: string,
   sasFingerprint: string,
   roomId: string,
-  signatureHex: string
+  signatureHex: string = ''
 ): VerifiablePresentation {
   const now = new Date().toISOString();
   return {
@@ -206,3 +279,89 @@ export function createCallVerificationPresentation(
     },
   };
 }
+
+/**
+ * Signs a Call Verification Presentation using an Ed25519 identity private key.
+ */
+export function signCallVerificationPresentation(
+  issuerPrivateKey: Uint8Array,
+  issuerDid: string,
+  verifiedPeerDid: string,
+  sasFingerprint: string,
+  roomId: string
+): VerifiablePresentation {
+  const presentation = createCallVerificationPresentation(
+    issuerDid,
+    verifiedPeerDid,
+    sasFingerprint,
+    roomId
+  );
+
+  const digest = computeCredentialDigest(presentation.verifiableCredential);
+  const signatureBytes = ed25519.sign(digest, issuerPrivateKey);
+  presentation.proof.jws = bytesToHex(signatureBytes);
+
+  return presentation;
+}
+
+export interface VerificationResult {
+  valid: boolean;
+  issuerDid?: string;
+  verifiedPeerDid?: string;
+  sasFingerprint?: string;
+  roomId?: string;
+  issuanceDate?: string;
+  reason?: string;
+}
+
+/**
+ * Cryptographically verifies a W3C Verifiable Presentation against the issuer's public key.
+ */
+export function verifyCallVerificationPresentation(
+  presentation: VerifiablePresentation,
+  expectedRoomId?: string
+): VerificationResult {
+  if (!presentation || !presentation.verifiableCredential || !presentation.proof) {
+    return { valid: false, reason: 'Malformed Verifiable Presentation structure' };
+  }
+
+  const { verifiableCredential, proof } = presentation;
+
+  if (expectedRoomId && verifiableCredential.credentialSubject?.roomId !== expectedRoomId) {
+    return {
+      valid: false,
+      reason: `Room ID mismatch: expected ${expectedRoomId}, got ${verifiableCredential.credentialSubject?.roomId}`,
+    };
+  }
+
+  if (!proof.jws || proof.jws.length !== 128) {
+    return { valid: false, reason: 'Invalid signature format in proof (expected 128-hex character 64-byte Ed25519 signature)' };
+  }
+
+  try {
+    const issuerDid = verifiableCredential.issuer;
+    const publicKey = extractEd25519PublicKey(issuerDid);
+    const signatureBytes = hexToBytes(proof.jws);
+    const digest = computeCredentialDigest(verifiableCredential);
+
+    const isValid = ed25519.verify(signatureBytes, digest, publicKey);
+    if (!isValid) {
+      return { valid: false, reason: 'Cryptographic signature verification failed (tampered credential)' };
+    }
+
+    return {
+      valid: true,
+      issuerDid,
+      verifiedPeerDid: verifiableCredential.credentialSubject.verifiedPeer,
+      sasFingerprint: verifiableCredential.credentialSubject.sasFingerprint,
+      roomId: verifiableCredential.credentialSubject.roomId,
+      issuanceDate: verifiableCredential.issuanceDate,
+    };
+  } catch (err: any) {
+    return {
+      valid: false,
+      reason: `Signature verification error: ${err.message || 'unknown error'}`,
+    };
+  }
+}
+

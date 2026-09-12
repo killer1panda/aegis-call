@@ -18,7 +18,10 @@ export interface SfuConsumer {
   peerId: string;
   producerId: string;
   preferredTier?: SimulcastTier;
+  framesForwarded?: number;
+  framesDropped?: number;
 }
+
 
 export interface SfuRoom {
   roomId: string;
@@ -194,18 +197,70 @@ export class SfuRelay {
       if (peerId === senderPeerId || socket.readyState !== WebSocket.OPEN) continue;
 
       const consumerId = `cons-${peerId}-${producerId}`;
-      const consumer = room.consumers.get(consumerId);
-      const targetTier = consumer?.preferredTier || 'high';
+      let consumer = room.consumers.get(consumerId);
+      if (!consumer) {
+        consumer = {
+          consumerId,
+          peerId,
+          producerId,
+          preferredTier: 'high',
+          framesForwarded: 0,
+          framesDropped: 0,
+        };
+        room.consumers.set(consumerId, consumer);
+      }
+      const targetTier = consumer.preferredTier || 'high';
 
       // Tier matching: 'low' receivers only receive low tier; 'medium' receive medium; 'high' receive high
-      if (targetTier === tier || (targetTier === 'high' && tier === 'medium')) {
+      const shouldForward = targetTier === tier || (targetTier === 'high' && tier === 'medium');
+      if (shouldForward) {
         socket.send(packet);
+        consumer.framesForwarded = (consumer.framesForwarded || 0) + 1;
         forwardedCount++;
+      } else {
+        consumer.framesDropped = (consumer.framesDropped || 0) + 1;
       }
     }
 
     return forwardedCount;
   }
+
+  /**
+   * Retrieves frame forwarding and drop telemetry for a specific peer consumer.
+   */
+  public getConsumerMetrics(
+    roomId: string,
+    peerId: string
+  ): Array<{
+    consumerId: string;
+    producerId: string;
+    preferredTier: SimulcastTier;
+    framesForwarded: number;
+    framesDropped: number;
+    dropPercentage: number;
+  }> {
+    const room = this.rooms.get(roomId);
+    if (!room) return [];
+
+    const metrics = [];
+    for (const consumer of room.consumers.values()) {
+      if (consumer.peerId === peerId) {
+        const forwarded = consumer.framesForwarded || 0;
+        const dropped = consumer.framesDropped || 0;
+        const total = forwarded + dropped;
+        metrics.push({
+          consumerId: consumer.consumerId,
+          producerId: consumer.producerId,
+          preferredTier: consumer.preferredTier || 'high',
+          framesForwarded: forwarded,
+          framesDropped: dropped,
+          dropPercentage: total > 0 ? (dropped / total) * 100 : 0,
+        });
+      }
+    }
+    return metrics;
+  }
+
 
   public updateActiveSpeaker(roomId: string, speakerPeerId: string, audioLevel: number): void {
     const room = this.rooms.get(roomId);

@@ -82,4 +82,40 @@ describe('Blind SFU Encrypted Simulcast & SVC Adaptation', () => {
     expect(socketBob.send).toHaveBeenCalled();
     expect(socketCharlie.send).toHaveBeenCalled();
   });
+
+  it('should accurately track forwarded vs dropped frames per consumer tier', () => {
+    const sfu = new SfuRelay();
+    const roomId = 'room-metrics-test';
+
+    const socketSender = createMockSocket();
+    const socketConstrained = createMockSocket();
+
+    sfu.joinRoom(roomId, 'sender', socketSender);
+    sfu.joinRoom(roomId, 'constrained-peer', socketConstrained);
+
+    const producer = sfu.registerProducer(roomId, 'sender', 'video', 'key-metrics');
+    const producerId = producer!.producerId;
+
+    // Constrained peer sets preferred tier to 'low'
+    sfu.setConsumerTier(roomId, 'constrained-peer', producerId, 'low');
+
+    // Send 3 'high' frames, 2 'medium' frames, and 5 'low' frames
+    for (let i = 0; i < 3; i++) {
+      sfu.forwardEncryptedSimulcastFrame(roomId, 'sender', producerId, `high-${i}`, 'high');
+    }
+    for (let i = 0; i < 2; i++) {
+      sfu.forwardEncryptedSimulcastFrame(roomId, 'sender', producerId, `med-${i}`, 'medium');
+    }
+    for (let i = 0; i < 5; i++) {
+      sfu.forwardEncryptedSimulcastFrame(roomId, 'sender', producerId, `low-${i}`, 'low');
+    }
+
+    const metrics = sfu.getConsumerMetrics(roomId, 'constrained-peer');
+    expect(metrics.length).toBe(1);
+    expect(metrics[0].preferredTier).toBe('low');
+    expect(metrics[0].framesForwarded).toBe(5); // Only 5 'low' frames forwarded
+    expect(metrics[0].framesDropped).toBe(5); // 3 high + 2 med dropped
+    expect(metrics[0].dropPercentage).toBe(50); // 50% bandwidth conserved / saved
+  });
 });
+

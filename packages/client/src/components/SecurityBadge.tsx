@@ -13,12 +13,16 @@ import {
   ChevronDown,
   ChevronUp,
   BookmarkCheck,
+  Upload,
 } from 'lucide-react';
 import {
   SASVerification,
   resolveDIDDocument,
   createCallVerificationPresentation,
   issueHardwareReceipt,
+  generateIdentityKeyPair,
+  signCallVerificationPresentation,
+  verifyCallVerificationPresentation,
 } from '@aegis/crypto';
 import { TrustedContactsRegistry } from '../services/trustedContactsRegistry.js';
 
@@ -49,6 +53,8 @@ export const SecurityBadge: React.FC<SecurityBadgeProps> = ({
   const [showDidDoc, setShowDidDoc] = useState(false);
   const [isPeerPinned, setIsPeerPinned] = useState(false);
   const [vpExported, setVpExported] = useState(false);
+  const [verificationFeedback, setVerificationFeedback] = useState<string | null>(null);
+  const identityKeyPairRef = React.useRef(generateIdentityKeyPair());
 
   // ESC key listener for modal closing (A11y standard)
   useEffect(() => {
@@ -81,14 +87,14 @@ export const SecurityBadge: React.FC<SecurityBadgeProps> = ({
 
   const handleExportVerifiablePresentation = () => {
     if (!safetyNumbers) return;
-    const issuer = localDid || 'did:key:zAegisSelf';
+    const idPair = identityKeyPairRef.current;
     const peer = remoteDid || 'did:key:zAegisPeer';
-    const presentation = createCallVerificationPresentation(
-      issuer,
+    const presentation = signCallVerificationPresentation(
+      idPair.privateKey,
+      idPair.did,
       peer,
       safetyNumbers.hexFingerprint,
-      roomId,
-      '00'.repeat(64)
+      roomId
     );
 
     const blob = new Blob([JSON.stringify(presentation, null, 2)], {
@@ -102,6 +108,23 @@ export const SecurityBadge: React.FC<SecurityBadgeProps> = ({
     URL.revokeObjectURL(url);
     setVpExported(true);
     setTimeout(() => setVpExported(false), 3000);
+  };
+
+  const handleVerifyCredentialFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+      const result = verifyCallVerificationPresentation(parsed, roomId);
+      if (result.valid) {
+        setVerificationFeedback(`Authentic Credential! Issuer: ${result.issuerDid?.slice(0, 20)}...`);
+      } else {
+        setVerificationFeedback(`Verification Failed: ${result.reason}`);
+      }
+    } catch (err: any) {
+      setVerificationFeedback(`Invalid JSON Credential: ${err.message}`);
+    }
   };
 
   const handlePinContact = () => {
@@ -326,15 +349,38 @@ export const SecurityBadge: React.FC<SecurityBadgeProps> = ({
                   </div>
                 )}
 
-                {/* Verifiable Presentation Export */}
-                <div className="pt-1">
-                  <button
-                    onClick={handleExportVerifiablePresentation}
-                    className="w-full py-2 px-3 rounded-lg bg-dark-850 hover:bg-dark-800 border border-dark-750 text-xs font-mono text-cyber-cyan flex items-center justify-center gap-1.5 transition-colors"
-                  >
-                    <FileCheck className="w-3.5 h-3.5" />
-                    <span>{vpExported ? 'Credential Downloaded!' : 'Export Verifiable Credential (JSON-LD)'}</span>
-                  </button>
+                {/* Verifiable Presentation Export & Verification */}
+                <div className="pt-1 space-y-2">
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      onClick={handleExportVerifiablePresentation}
+                      className="w-full py-2 px-3 rounded-lg bg-dark-850 hover:bg-dark-800 border border-dark-750 text-xs font-mono text-cyber-cyan flex items-center justify-center gap-1.5 transition-colors"
+                    >
+                      <FileCheck className="w-3.5 h-3.5" />
+                      <span>{vpExported ? 'Downloaded!' : 'Export VP (JSON)'}</span>
+                    </button>
+
+                    <label className="w-full py-2 px-3 rounded-lg bg-dark-850 hover:bg-dark-800 border border-dark-750 text-xs font-mono text-slate-300 flex items-center justify-center gap-1.5 transition-colors cursor-pointer">
+                      <Upload className="w-3.5 h-3.5 text-cyber-emerald" />
+                      <span>Verify File</span>
+                      <input
+                        type="file"
+                        accept=".json"
+                        onChange={handleVerifyCredentialFile}
+                        className="hidden"
+                      />
+                    </label>
+                  </div>
+
+                  {verificationFeedback && (
+                    <div className={`p-2.5 rounded-lg text-[11px] font-mono border ${
+                      verificationFeedback.startsWith('Authentic')
+                        ? 'bg-cyber-emerald/15 border-cyber-emerald/40 text-cyber-emerald'
+                        : 'bg-cyber-rose/15 border-cyber-rose/40 text-cyber-rose'
+                    }`}>
+                      {verificationFeedback}
+                    </div>
+                  )}
                 </div>
               </div>
             </>
