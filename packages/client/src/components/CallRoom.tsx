@@ -15,6 +15,7 @@ import {
   Users,
   Lock,
   UploadCloud,
+  Sparkles,
 } from 'lucide-react';
 import { useAudioVisualizer } from '../hooks/useAudioVisualizer.js';
 
@@ -27,6 +28,8 @@ interface CallRoomProps {
   isSelfVerified: boolean;
   isPeerVerified: boolean;
   unreadChatCount: number;
+  isNoiseSuppressionEnabled?: boolean;
+  onToggleNoiseSuppression?: () => void;
   onToggleAudio: () => void;
   onToggleVideo: () => void;
   onToggleScreenShare: () => void;
@@ -47,6 +50,8 @@ export const CallRoom: React.FC<CallRoomProps> = ({
   isSelfVerified,
   isPeerVerified,
   unreadChatCount,
+  isNoiseSuppressionEnabled = true,
+  onToggleNoiseSuppression,
   onToggleAudio,
   onToggleVideo,
   onToggleScreenShare,
@@ -244,6 +249,22 @@ export const CallRoom: React.FC<CallRoomProps> = ({
         >
           {isAudioMuted ? <MicOff className="w-5 h-5" aria-hidden="true" /> : <Mic className="w-5 h-5" aria-hidden="true" />}
         </button>
+
+        {/* AudioWorklet Voice Isolation Toggle */}
+        {onToggleNoiseSuppression && (
+          <button
+            onClick={onToggleNoiseSuppression}
+            aria-label={isNoiseSuppressionEnabled ? 'Disable Voice Isolation' : 'Enable Voice Isolation'}
+            title={isNoiseSuppressionEnabled ? 'AudioWorklet Voice Isolation: Active' : 'AudioWorklet Voice Isolation: Off'}
+            className={`min-w-[44px] min-h-[44px] p-3 rounded-xl border transition-all focus-visible:ring-2 focus-visible:ring-cyber-emerald focus-visible:outline-none ${
+              isNoiseSuppressionEnabled
+                ? 'bg-cyber-purple/20 border-cyber-purple/50 text-cyber-purple'
+                : 'bg-dark-850 hover:bg-dark-800 border-dark-700 text-slate-400'
+            }`}
+          >
+            <Sparkles className="w-5 h-5" aria-hidden="true" />
+          </button>
+        )}
 
         {/* Video Camera Toggle */}
         <button

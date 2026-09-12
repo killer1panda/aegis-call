@@ -14,6 +14,7 @@ import {
   EncryptedMessagePayload,
 } from '@aegis/crypto';
 import { ReceivedFile } from '../components/FileDropModal.js';
+import { useAudioWorklet } from './useAudioWorklet.js';
 
 export type CallState =
   | 'idle'
@@ -61,7 +62,9 @@ export function useWebRTC(roomId: string) {
   const [callState, setCallState] = useState<CallState>('lobby');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+  const [rawLocalStream, setRawLocalStream] = useState<MediaStream | null>(null);
+  const { processedStream, isNoiseSuppressionEnabled, toggleNoiseSuppression } = useAudioWorklet(rawLocalStream);
+  const localStream = processedStream || rawLocalStream;
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
 
   const [isAudioMuted, setIsAudioMuted] = useState(false);
@@ -155,8 +158,8 @@ export function useWebRTC(roomId: string) {
   // 2. Setup Local Media Stream
   const initLocalMedia = useCallback(async () => {
     try {
-      if (localStream) {
-        localStream.getTracks().forEach((t) => t.stop());
+      if (rawLocalStream) {
+        rawLocalStream.getTracks().forEach((t) => t.stop());
       }
 
       const constraints: MediaStreamConstraints = {
@@ -167,20 +170,20 @@ export function useWebRTC(roomId: string) {
       };
 
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
-      setLocalStream(stream);
+      setRawLocalStream(stream);
       return stream;
     } catch (err: any) {
       console.warn('getUserMedia fallback to audio-only:', err);
       try {
         const audioOnly = await navigator.mediaDevices.getUserMedia({ audio: true });
-        setLocalStream(audioOnly);
+        setRawLocalStream(audioOnly);
         return audioOnly;
       } catch (fallbackErr: any) {
         setErrorMessage('Camera or Microphone access denied. Please allow permissions in browser.');
         throw fallbackErr;
       }
     }
-  }, [selectedAudioId, selectedVideoId]);
+  }, [selectedAudioId, selectedVideoId, rawLocalStream]);
 
   useEffect(() => {
     initLocalMedia().catch(() => {});
@@ -827,6 +830,8 @@ export function useWebRTC(roomId: string) {
     isDataChannelOpen,
     transferProgress,
     receivedFiles,
+    isNoiseSuppressionEnabled,
+    toggleNoiseSuppression,
     setSelectedAudioId,
     setSelectedVideoId,
     joinCall,

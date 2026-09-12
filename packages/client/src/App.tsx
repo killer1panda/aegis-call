@@ -43,6 +43,8 @@ export function App() {
     isDataChannelOpen,
     transferProgress,
     receivedFiles,
+    isNoiseSuppressionEnabled,
+    toggleNoiseSuppression,
     setSelectedAudioId,
     setSelectedVideoId,
     joinCall,
@@ -150,6 +152,8 @@ export function App() {
             isSelfVerified={isSelfVerified}
             isPeerVerified={isPeerVerified}
             unreadChatCount={unreadChatCount}
+            isNoiseSuppressionEnabled={isNoiseSuppressionEnabled}
+            onToggleNoiseSuppression={toggleNoiseSuppression}
             onToggleAudio={toggleAudio}
             onToggleVideo={toggleVideo}
             onToggleScreenShare={toggleScreenShare}
