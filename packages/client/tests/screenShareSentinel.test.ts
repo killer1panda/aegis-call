@@ -72,4 +72,40 @@ describe('AegisCall Autonomous Screen-Share Data Leak Sentinel', () => {
     expect(strokeRectMock).toHaveBeenCalledWith(100, 200, 300, 40);
     expect(restoreMock).toHaveBeenCalled();
   });
+
+  it('should initialize and execute active video frame sanitizer pipeline', () => {
+    const sentinel = ScreenShareSentinel.getInstance();
+
+    const dummyTrack = {
+      kind: 'video',
+      id: 'mock-screen-track-1',
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      stop: vi.fn(),
+    } as unknown as MediaStreamTrack;
+
+    const detectedSecretsList: any[] = [];
+    let frameSampleCount = 0;
+
+    const handle = sentinel.createSanitizedTrack(dummyTrack, {
+      fps: 30,
+      width: 1280,
+      height: 720,
+      onSecretDetected: (secrets) => {
+        detectedSecretsList.push(...secrets);
+      },
+      ocrSampler: () => {
+        frameSampleCount++;
+        return 'AWS_SECRET_KEY=AKIAIOSFODNN7EXAMPLE in terminal buffer';
+      },
+    });
+
+    expect(handle).toBeDefined();
+    expect(handle.sanitizedTrack).toBeDefined();
+    expect(typeof handle.stop).toBe('function');
+    expect(typeof handle.getProcessedFrameCount).toBe('function');
+
+    // Tear down
+    handle.stop();
+  });
 });

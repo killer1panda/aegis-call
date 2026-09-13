@@ -17,11 +17,18 @@ export type MeshMessageHandler = (msg: MeshMessage) => void;
 export class LocalMeshSignaling {
   private static channels = new Map<string, BroadcastChannel>();
   private static listeners = new Map<string, Set<MeshMessageHandler>>();
+  private static lanPollIntervals = new Map<string, any>();
+  private static knownLanPeers = new Map<string, Set<string>>();
 
   /**
-   * Initializes local broadcast channel for a specific calling room.
+   * Initializes local broadcast channel and optional LAN UDP beacon synchronization.
    */
-  public static connect(roomId: string, localPeerId: string, onMessage: MeshMessageHandler): void {
+  public static connect(
+    roomId: string,
+    localPeerId: string,
+    onMessage: MeshMessageHandler,
+    options?: { lanServiceUrl?: string }
+  ): void {
     const channelKey = `aegis-mesh:${roomId}`;
 
     let channel = this.channels.get(channelKey);
@@ -51,6 +58,52 @@ export class LocalMeshSignaling {
       senderId: localPeerId,
       timestamp: Date.now(),
     });
+
+    // Cross-machine LAN UDP beacon synchronization (if service available)
+    const lanUrl = options?.lanServiceUrl || (typeof window !== 'undefined' ? window.location?.origin : undefined);
+    if (lanUrl && typeof fetch === 'function') {
+      // 1. Announce presence to local LAN UDP beacon daemon
+      fetch(`${lanUrl}/api/lan/announce`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ roomId, peerId: localPeerId }),
+      }).catch(() => {});
+
+      // 2. Poll for physical LAN subnet peers
+      if (!this.knownLanPeers.has(roomId)) {
+        this.knownLanPeers.set(roomId, new Set());
+      }
+
+      const pollLanPeers = async () => {
+        try {
+          const res = await fetch(`${lanUrl}/api/lan/peers/${roomId}`);
+          if (!res.ok) return;
+          const data = await res.json();
+          const peers = (data.peers || []) as Array<{ peerId: string; remoteAddress: string }>;
+
+          const roomKnown = this.knownLanPeers.get(roomId)!;
+          for (const p of peers) {
+            if (p.peerId !== localPeerId && !roomKnown.has(p.peerId)) {
+              roomKnown.add(p.peerId);
+              const roomListeners = this.listeners.get(roomId);
+              if (roomListeners) {
+                const meshMsg: MeshMessage = {
+                  type: 'peer-joined',
+                  roomId,
+                  senderId: p.peerId,
+                  payload: { transport: 'lan-udp-mesh', address: p.remoteAddress },
+                  timestamp: Date.now(),
+                };
+                roomListeners.forEach((h) => h(meshMsg));
+              }
+            }
+          }
+        } catch {}
+      };
+
+      const interval = setInterval(pollLanPeers, 3000);
+      this.lanPollIntervals.set(roomId, interval);
+    }
   }
 
   /**
@@ -76,7 +129,7 @@ export class LocalMeshSignaling {
   /**
    * Leaves and disconnects local mesh signaling for a room.
    */
-  public static disconnect(roomId: string, localPeerId: string): void {
+  public static disconnect(roomId: string, localPeerId: string, options?: { lanServiceUrl?: string }): void {
     const channelKey = `aegis-mesh:${roomId}`;
 
     this.send(roomId, {
@@ -92,5 +145,22 @@ export class LocalMeshSignaling {
       this.channels.delete(channelKey);
     }
     this.listeners.delete(roomId);
+
+    // Stop LAN polling and notify LAN beacon of leave
+    const interval = this.lanPollIntervals.get(roomId);
+    if (interval) {
+      clearInterval(interval);
+      this.lanPollIntervals.delete(roomId);
+    }
+    this.knownLanPeers.delete(roomId);
+
+    const lanUrl = options?.lanServiceUrl || (typeof window !== 'undefined' ? window.location?.origin : undefined);
+    if (lanUrl && typeof fetch === 'function') {
+      fetch(`${lanUrl}/api/lan/leave`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ roomId, peerId: localPeerId }),
+      }).catch(() => {});
+    }
   }
 }

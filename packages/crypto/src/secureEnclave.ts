@@ -5,12 +5,23 @@ import { x25519 } from '@noble/curves/ed25519';
 
 export type EnclaveType = 'apple-sep' | 'android-strongbox' | 'tpm2' | 'software-fallback';
 
+export interface EnclaveHardwareDriver {
+  name: string;
+  enclaveType: EnclaveType;
+  isAvailable(): boolean;
+  generateKeyPair(): Promise<{ keyId: string; publicKeyBytes: Uint8Array }> | { keyId: string; publicKeyBytes: Uint8Array };
+  computeSharedSecret(keyId: string, peerPublicKeyBytes: Uint8Array): Promise<Uint8Array> | Uint8Array;
+  destroyKey(keyId: string): Promise<void> | void;
+}
+
 export interface EnclaveKeyPair {
   keyId: string;
   publicKeyBytes: Uint8Array;
   publicKeyHex: string;
   enclaveType: EnclaveType;
   hardwareBacked: boolean;
+  isEmulated?: boolean;
+  driver?: string;
 }
 
 export interface RemoteDeviceAttestation {
@@ -28,26 +39,107 @@ export interface RemoteDeviceAttestation {
 export class EnclaveKeyManager {
   // In-memory hardware simulator mapping isolated key IDs to non-extractable private keys
   private static secureSiliconStorage = new Map<string, Uint8Array>();
+  private static registeredDrivers = new Map<EnclaveType, EnclaveHardwareDriver>();
+
+  /**
+   * Registers a native hardware enclave driver (e.g. Tauri Rust SEP or Capacitor StrongBox bridge).
+   */
+  public static registerHardwareDriver(driver: EnclaveHardwareDriver): void {
+    this.registeredDrivers.set(driver.enclaveType, driver);
+  }
+
+  /**
+   * Unregisters a previously registered hardware driver.
+   */
+  public static unregisterHardwareDriver(type: EnclaveType): void {
+    this.registeredDrivers.delete(type);
+  }
+
+  /**
+   * Checks whether authentic hardware silicon is physically available on this host.
+   */
+  public static isHardwareSiliconAvailable(type?: EnclaveType): boolean {
+    if (type) {
+      const driver = this.registeredDrivers.get(type);
+      return !!driver && driver.isAvailable();
+    }
+    for (const driver of this.registeredDrivers.values()) {
+      if (driver.isAvailable()) return true;
+    }
+    return false;
+  }
 
   /**
    * Generates an ephemeral cryptographic keypair inside the Hardware Secure Enclave.
-   * Private key material is permanently bound to the enclave and never exposed to OS RAM.
+   * If native silicon is unavailable, transparently reports emulation status.
    */
-  public static generateEnclaveKeyPair(type: EnclaveType = 'apple-sep'): EnclaveKeyPair {
+  public static generateEnclaveKeyPair(
+    type: EnclaveType = 'apple-sep',
+    options?: { forceHardware?: boolean }
+  ): EnclaveKeyPair {
+    const driver = this.registeredDrivers.get(type);
+    if (driver && driver.isAvailable()) {
+      const result = driver.generateKeyPair();
+      if ('then' in (result as any)) {
+        throw new Error('Async hardware driver requires generateEnclaveKeyPairAsync');
+      }
+      const syncResult = result as { keyId: string; publicKeyBytes: Uint8Array };
+      return {
+        keyId: syncResult.keyId,
+        publicKeyBytes: syncResult.publicKeyBytes,
+        publicKeyHex: bytesToHex(syncResult.publicKeyBytes),
+        enclaveType: type,
+        hardwareBacked: true,
+        isEmulated: false,
+        driver: driver.name,
+      };
+    }
+
+    if (options?.forceHardware) {
+      throw new Error(`Native hardware secure enclave [${type}] is not available on this host`);
+    }
+
     const keyId = `enclave-key-${bytesToHex(crypto.getRandomValues(new Uint8Array(16)))}`;
     const privateKey = x25519.utils.randomPrivateKey();
     const publicKeyBytes = x25519.getPublicKey(privateKey);
 
-    // Private key is held inside isolated enclave memory boundary
+    // Private key is held inside isolated memory boundary
     this.secureSiliconStorage.set(keyId, privateKey);
 
+    const isHardwareRequested = type !== 'software-fallback';
     return {
       keyId,
       publicKeyBytes,
       publicKeyHex: bytesToHex(publicKeyBytes),
       enclaveType: type,
-      hardwareBacked: type !== 'software-fallback',
+      hardwareBacked: isHardwareRequested,
+      isEmulated: true,
+      driver: isHardwareRequested ? `${type}-software-shim` : 'software-fallback',
     };
+  }
+
+  /**
+   * Asynchronously generates an enclave keypair supporting hardware drivers requiring I/O.
+   */
+  public static async generateEnclaveKeyPairAsync(
+    type: EnclaveType = 'apple-sep',
+    options?: { forceHardware?: boolean }
+  ): Promise<EnclaveKeyPair> {
+    const driver = this.registeredDrivers.get(type);
+    if (driver && driver.isAvailable()) {
+      const result = await driver.generateKeyPair();
+      return {
+        keyId: result.keyId,
+        publicKeyBytes: result.publicKeyBytes,
+        publicKeyHex: bytesToHex(result.publicKeyBytes),
+        enclaveType: type,
+        hardwareBacked: true,
+        isEmulated: false,
+        driver: driver.name,
+      };
+    }
+
+    return this.generateEnclaveKeyPair(type, options);
   }
 
   /**

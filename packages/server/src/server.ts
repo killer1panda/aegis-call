@@ -10,6 +10,7 @@ import { sfuRelayRouter, SfuRelay } from './sfuRelay.js';
 import { OHttpRelay } from './ohttpRelay.js';
 import { PushService } from './pushService.js';
 import { SipPstnGateway, registerSipRoutes } from './sipPstnGateway.js';
+import { LanMeshBeaconService } from './lanMeshBeacon.js';
 
 export function createServer(): FastifyInstance {
   const server = Fastify({
@@ -54,6 +55,9 @@ export function createServer(): FastifyInstance {
 
   // Sovereign SIP Trunking & Encrypted PSTN Audio Gateway
   registerSipRoutes(server, sipGateway);
+
+  // Air-Gapped Multi-Machine LAN Discovery Beacon Routes
+  LanMeshBeaconService.getInstance().registerRoutes(server);
 
   // WebSocket signaling gateway
   const socketRateMap = new WeakMap<WebSocket, { count: number; resetAt: number; joins: number }>();

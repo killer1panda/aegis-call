@@ -35,6 +35,7 @@ import { CallNotificationService } from '@aegis/mobile';
 import { AudioIsolationService } from '../services/audioIsolationService.js';
 import { SignalingTransportType } from '../components/TransportSelector.js';
 import { LocalMeshSignaling } from '../services/localMeshSignaling.js';
+import { ScreenShareSentinel } from '../services/screenShareSentinel.js';
 
 export type CallState =
   | 'idle'
@@ -187,6 +188,7 @@ export function useWebRTC(roomId: string, transport: SignalingTransportType = 'w
   const workerRef = useRef<Worker | null>(null);
   const screenTrackRef = useRef<MediaStreamTrack | null>(null);
   const screenAudioTrackRef = useRef<MediaStreamTrack | null>(null);
+  const screenSanitizerRef = useRef<{ stop: () => void } | null>(null);
 
   // Perfect Negotiation state refs
   const makingOfferRef = useRef(false);
@@ -983,6 +985,10 @@ export function useWebRTC(roomId: string, transport: SignalingTransportType = 'w
 
   const toggleScreenShare = async () => {
     if (isScreenSharing) {
+      if (screenSanitizerRef.current) {
+        screenSanitizerRef.current.stop();
+        screenSanitizerRef.current = null;
+      }
       if (screenTrackRef.current) {
         screenTrackRef.current.stop();
         screenTrackRef.current = null;
@@ -1018,13 +1024,28 @@ export function useWebRTC(roomId: string, transport: SignalingTransportType = 'w
           }
         }
 
+        // Active edge computer-vision screen sanitizer pipeline
+        let outgoingVideoTrack = screenTrack;
+        try {
+          const sentinel = ScreenShareSentinel.getInstance();
+          const handle = sentinel.createSanitizedTrack(screenTrack, {
+            onSecretDetected: (findings) => {
+              console.warn('[ScreenShareSentinel] Credential exposure intercepted & redacted:', findings);
+            },
+          });
+          screenSanitizerRef.current = handle;
+          outgoingVideoTrack = handle.sanitizedTrack;
+        } catch (err) {
+          console.warn('[ScreenShareSentinel] Video frame sanitizer init fallback:', err);
+        }
+
         screenTrack.onended = () => {
           toggleScreenShare();
         };
 
         if (pcRef.current) {
           const sender = pcRef.current.getSenders().find((s) => s.track?.kind === 'video');
-          if (sender) sender.replaceTrack(screenTrack);
+          if (sender) sender.replaceTrack(outgoingVideoTrack);
         }
 
         setIsScreenSharing(true);
@@ -1174,6 +1195,10 @@ export function useWebRTC(roomId: string, transport: SignalingTransportType = 'w
     if (pcRef.current) pcRef.current.close();
     if (workerRef.current) workerRef.current.terminate();
     if (localStream) localStream.getTracks().forEach((t) => t.stop());
+    if (screenSanitizerRef.current) {
+      screenSanitizerRef.current.stop();
+      screenSanitizerRef.current = null;
+    }
     if (screenTrackRef.current) screenTrackRef.current.stop();
 
     // Revoke object URLs to eliminate memory leak

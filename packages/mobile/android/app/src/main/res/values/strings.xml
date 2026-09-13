@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">AegisCall</string>
+    <string name="title_activity_main">AegisCall</string>
+    <string name="package_name">io.aegiscall.secure</string>
+    <string name="custom_url_scheme">io.aegiscall.secure</string>
+</resources>

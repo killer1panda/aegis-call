@@ -89,4 +89,27 @@ describe('AegisCall Matrix 2.0 (MSC3401 / MatrixRTC) Bridge', () => {
     const malformedPeers = bridge.parsePeerMembership({} as any);
     expect(malformedPeers).toEqual([]);
   });
+
+  it('should initialize MatrixLiveSyncClient and manage sync lifecycle', async () => {
+    const { MatrixLiveSyncClient } = await import('../src/services/matrixRTCBridge.js');
+    const client = new MatrixLiveSyncClient({
+      homeserverUrl: 'https://matrix.org',
+      accessToken: 'test-token',
+      roomId: '!test-room:matrix.org',
+      deviceId: 'device-test-1',
+    });
+
+    expect(client.getBridge()).toBeDefined();
+
+    let peerUpdateReceived = false;
+    const loopHandle = client.startSyncLoop((peers) => {
+      peerUpdateReceived = true;
+    });
+
+    expect(loopHandle).toBeDefined();
+    expect(typeof loopHandle.stop).toBe('function');
+
+    // Tear down
+    loopHandle.stop();
+  });
 });

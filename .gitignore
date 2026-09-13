@@ -10,3 +10,14 @@ src-tauri/target/
 **/target/
 playwright-report/
 test-results/
+
+# Mobile native build artifacts
+.gradle/
+**/build/
+**/Pods/
+**/*.xcuserstate
+**/*.xcuserdata/
+*.pbxuser
+*.mode1v3
+*.mode2v3
+*.perspectivev3

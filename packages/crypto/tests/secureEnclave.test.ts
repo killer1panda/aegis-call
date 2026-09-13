@@ -118,4 +118,43 @@ describe('AegisCall Hardware Secure Enclave & Remote Attestation Subsystem', () 
     expect(replayResult.valid).toBe(false);
     expect(replayResult.reason).toContain('nonce mismatch');
   });
+
+  it('should support registering authentic hardware drivers and transparently reporting silicon status', () => {
+    // 1. Without hardware driver: reports emulated shim
+    expect(EnclaveKeyManager.isHardwareSiliconAvailable('apple-sep')).toBe(false);
+    const emulatedKey = EnclaveKeyManager.generateEnclaveKeyPair('apple-sep');
+    expect(emulatedKey.isEmulated).toBe(true);
+    expect(emulatedKey.driver).toBe('apple-sep-software-shim');
+
+    // 2. Strict forceHardware fails closed if no driver exists
+    expect(() =>
+      EnclaveKeyManager.generateEnclaveKeyPair('apple-sep', { forceHardware: true })
+    ).toThrow(/not available on this host/);
+
+    // 3. Register native hardware driver mock (e.g. Tauri Rust SEP or Capacitor KeyStore)
+    const mockDriver = {
+      name: 'tauri-macos-sep-hardware-bridge',
+      enclaveType: 'apple-sep' as const,
+      isAvailable: () => true,
+      generateKeyPair: () => ({
+        keyId: 'hardware-sep-key-999',
+        publicKeyBytes: new Uint8Array(32).fill(0x7a),
+      }),
+      computeSharedSecret: () => new Uint8Array(32).fill(0x33),
+      destroyKey: () => {},
+    };
+
+    EnclaveKeyManager.registerHardwareDriver(mockDriver);
+    expect(EnclaveKeyManager.isHardwareSiliconAvailable('apple-sep')).toBe(true);
+
+    const hwKey = EnclaveKeyManager.generateEnclaveKeyPair('apple-sep');
+    expect(hwKey.keyId).toBe('hardware-sep-key-999');
+    expect(hwKey.hardwareBacked).toBe(true);
+    expect(hwKey.isEmulated).toBe(false);
+    expect(hwKey.driver).toBe('tauri-macos-sep-hardware-bridge');
+
+    // Clean up driver
+    EnclaveKeyManager.unregisterHardwareDriver('apple-sep');
+    expect(EnclaveKeyManager.isHardwareSiliconAvailable('apple-sep')).toBe(false);
+  });
 });

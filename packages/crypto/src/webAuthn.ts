@@ -86,3 +86,62 @@ export function verifyReceiptIntegrity(
 
   return true;
 }
+
+/**
+ * Derives a hardware-bound root key using the W3C WebAuthn Level 3 PRF (Pseudo-Random Function) extension.
+ * If running on a client with a hardware security key (YubiKey, Apple Touch ID / SEP, Windows Hello),
+ * the key is derived directly on the hardware silicon without the master seed ever touching RAM.
+ */
+export async function deriveHardwareKeyViaWebAuthnPrf(
+  salt: Uint8Array,
+  options?: {
+    rpId?: string;
+    credentialId?: Uint8Array;
+  }
+): Promise<{ keyBytes: Uint8Array; isHardwareBacked: boolean } | null> {
+  if (typeof window === 'undefined' || !window.PublicKeyCredential) {
+    return null;
+  }
+
+  try {
+    const assertionOptions: any = {
+      challenge: crypto.getRandomValues(new Uint8Array(32)),
+      rpId: options?.rpId || window.location?.hostname || 'localhost',
+      userVerification: 'preferred',
+      extensions: {
+        prf: {
+          eval: {
+            first: salt,
+          },
+        },
+      },
+    };
+
+    if (options?.credentialId) {
+      assertionOptions.allowCredentials = [
+        {
+          id: options.credentialId,
+          type: 'public-key',
+          transports: ['internal', 'usb', 'nfc', 'ble'],
+        },
+      ];
+    }
+
+    const credential = (await navigator.credentials.get({
+      publicKey: assertionOptions,
+    })) as any;
+
+    const prfResults = credential?.getClientExtensionResults?.()?.prf;
+    if (prfResults?.results?.first) {
+      return {
+        keyBytes: new Uint8Array(prfResults.results.first),
+        isHardwareBacked: true,
+      };
+    }
+  } catch (_err) {
+    // Hardware security key not attached or PRF extension unsupported
+    return null;
+  }
+
+  return null;
+}
