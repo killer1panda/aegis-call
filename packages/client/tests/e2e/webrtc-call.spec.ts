@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 
 test.describe('AegisCall WebRTC E2E Protocol & Features Verification', () => {
   test('Two peers establish E2EE call, negotiate media, and test security modals', async ({ browser }) => {
+    test.setTimeout(120_000);
     const roomId = `e2e-room-${Date.now()}`;
 
     // 1. Create Peer A (Alice) with media stream permissions
@@ -131,7 +132,53 @@ test.describe('AegisCall WebRTC E2E Protocol & Features Verification', () => {
       await audioIsolationBtnA.click();
       await expect(pageA.locator('button[title*="Audio Isolation: Active"]')).toBeVisible();
 
-      // 16. Test Duress PIN & Plausible Deniability Decoy Mode (User Setup Workflow)
+      // 16. Test Sovereign Sentinel & Anti-Surveillance Suite Modal
+      const sentinelBtnA = pageA.locator('button[data-testid="callroom-sentinel-btn"]');
+      await expect(sentinelBtnA).toBeVisible();
+      await sentinelBtnA.click();
+      await expect(pageA.getByRole('dialog', { name: /Sovereign Sentinel & Anti-Surveillance Suite/i })).toBeVisible();
+
+      // Test Tab 1: Hardware Enclave & Remote Attestation
+      await expect(pageA.locator('text=Hardware Secure Enclave Key Isolation')).toBeVisible();
+      await pageA.locator('button:has-text("Generate Enclave Keypair")').click();
+      await expect(pageA.locator('text=Enclave Key:')).toBeVisible();
+      await pageA.locator('button:has-text("Run Mutual Remote Attestation")').click();
+      await expect(pageA.locator('text=Hardware Bootloader Locked')).toBeVisible();
+
+      // Test Tab 2: Traffic Camouflage
+      await pageA.locator('button:has-text("Traffic Camouflage")').click();
+      await expect(pageA.locator('text=Constant-Rate Media Pacing')).toBeVisible();
+      await pageA.locator('button:has-text("START PACER")').click();
+      await expect(pageA.locator('button:has-text("PACER RUNNING")')).toBeVisible();
+      await pageA.locator('button:has-text("Test Protocol Encapsulation")').click();
+      await expect(pageA.locator('text=Disguised 8 bytes into')).toBeVisible();
+
+      // Test Tab 3: Acoustic & Optical Air-Gap
+      await pageA.locator('button:has-text("Acoustic & Optical")').click();
+      await expect(pageA.locator('text=Inaudible Ultrasound Near-Field Pairing')).toBeVisible();
+      await pageA.locator('button:has-text("Start 60 FPS Optical Stream")').click();
+      await expect(pageA.locator('button:has-text("Stop Optical Stream")')).toBeVisible();
+      await pageA.locator('button:has-text("Stop Optical Stream")').click();
+
+      // Test Tab 4: ZK & Quorum
+      await pageA.locator('button:has-text("ZK & Quorum")').click();
+      await expect(pageA.locator('text=Zero-Knowledge Group Membership Attestation')).toBeVisible();
+      await pageA.locator('button:has-text("Generate Anonymous ZK Proof")').click();
+      await expect(pageA.locator('text=Verified Against Merkle Root')).toBeVisible();
+      await pageA.locator('button:has-text("Create 3-of-5 Quorum Split")').click();
+      await expect(pageA.locator('text=Generated Custodian Shares:')).toBeVisible();
+
+      // Test Tab 5: Edge AI Sentinels
+      await pageA.locator('button:has-text("Edge AI Sentinels")').click();
+      await expect(pageA.locator('text=Autonomous Screen-Share "Data Leak" Sentinel')).toBeVisible();
+      await pageA.locator('button:has-text("Scan & Redact Canvas Frame")').click();
+      await expect(pageA.locator('text=Interception Alert:')).toBeVisible();
+
+      // Close Sentinel Modal
+      await pageA.locator('button[data-testid="close-sentinel-suite-btn"]').click();
+      await expect(pageA.getByRole('dialog', { name: /Sovereign Sentinel & Anti-Surveillance Suite/i })).not.toBeVisible();
+
+      // 17. Test Duress PIN & Plausible Deniability Decoy Mode (User Setup Workflow)
       await duressBtnA.click();
       await expect(pageA.getByRole('dialog', { name: /Duress/i })).toBeVisible();
 

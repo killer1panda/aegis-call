@@ -243,16 +243,12 @@ export const SovereignSentinelModal: React.FC<SovereignSentinelModalProps> = ({
 
   const handleRunZKMembership = () => {
     try {
-      const pk1 = new Uint8Array(32);
-      pk1.fill(0x11);
-      const pk2 = new Uint8Array(32);
-      pk2.fill(0x22);
-      const memberList = [pk1, pk2];
+      const member1 = ZKMembershipEngine.generateMemberKeyPair();
+      const member2 = ZKMembershipEngine.generateMemberKeyPair();
+      const memberList = [member1.publicKey, member2.publicKey];
       const tree = ZKMembershipEngine.buildMerkleTree(memberList);
 
-      const sk1 = new Uint8Array(32);
-      sk1.fill(0x11);
-      const proof = ZKMembershipEngine.generateMembershipProof(0, sk1, memberList, roomId, 1);
+      const proof = ZKMembershipEngine.generateMembershipProof(0, member1.privateKey, memberList, roomId, 1);
       const verification = ZKMembershipEngine.verifyMembershipProof(proof, tree.rootHex, roomId, memberList);
 
       setZkProofResult(
@@ -260,7 +256,7 @@ export const SovereignSentinelModal: React.FC<SovereignSentinelModalProps> = ({
           ? `Merkle Root: ${proof.merkleRoot.slice(0, 18)}...\nAnonymous Nullifier: ${proof.nullifierHash.slice(
               0,
               18
-            )}...\nRoom Access: Granted as Verified Board Member #1 (Zero Knowledge: Identity Preserved)`
+            )}...\nVerified Against Merkle Root: Granted as Verified Board Member #1 (Zero Knowledge: Identity Preserved)`
           : `Verification Failed: ${verification.reason}`
       );
     } catch (err: any) {
@@ -392,7 +388,8 @@ export const SovereignSentinelModal: React.FC<SovereignSentinelModalProps> = ({
           </div>
           <button
             onClick={onClose}
-            aria-label="Close modal"
+            aria-label="Close Sentinel Modal"
+            data-testid="close-sentinel-modal-top"
             className="p-1.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-dark-800 transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
@@ -954,6 +951,7 @@ export const SovereignSentinelModal: React.FC<SovereignSentinelModalProps> = ({
         <div className="p-4 border-t border-dark-800 bg-dark-850/50 flex justify-end">
           <button
             onClick={onClose}
+            data-testid="close-sentinel-suite-btn"
             className="px-5 py-2 rounded-xl bg-dark-800 hover:bg-dark-750 text-slate-300 hover:text-slate-100 font-semibold text-xs border border-dark-700 transition-colors cursor-pointer"
           >
             Close Suite

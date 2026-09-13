@@ -22,6 +22,29 @@ export const JA4_FINGERPRINTS = {
   SAFARI_APPLE: 't13i1516h2_0167389e13b8_4070a25690b7',
 };
 
+function uint8ToBase64(bytes: Uint8Array): string {
+  if (typeof Buffer !== 'undefined') {
+    return Buffer.from(bytes).toString('base64');
+  }
+  let binary = '';
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
+function base64ToUint8(b64: string): Uint8Array {
+  if (typeof Buffer !== 'undefined') {
+    return new Uint8Array(Buffer.from(b64, 'base64'));
+  }
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
 export class ProtocolCamouflage {
   /**
    * Wraps an encrypted payload into a benign service envelope indistinguishable from common SaaS/CDN traffic.
@@ -30,7 +53,7 @@ export class ProtocolCamouflage {
     payload: Uint8Array,
     profile: CamouflageProfile = 'youtube-stream'
   ): CamouflagedEnvelope {
-    const payloadBase64 = Buffer.from(payload).toString('base64');
+    const payloadBase64 = uint8ToBase64(payload);
     const timestamp = Date.now();
 
     switch (profile) {
@@ -85,6 +108,6 @@ export class ProtocolCamouflage {
     if (!envelope || !envelope.payloadBase64) {
       throw new Error('Invalid camouflaged envelope: payload missing');
     }
-    return new Uint8Array(Buffer.from(envelope.payloadBase64, 'base64'));
+    return base64ToUint8(envelope.payloadBase64);
   }
 }

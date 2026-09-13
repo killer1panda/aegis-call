@@ -17,6 +17,29 @@ export interface QuorumEncryptedArchive {
   ciphertextBase64: string;
 }
 
+function uint8ToBase64(bytes: Uint8Array): string {
+  if (typeof Buffer !== 'undefined') {
+    return Buffer.from(bytes).toString('base64');
+  }
+  let binary = '';
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
+function base64ToUint8(b64: string): Uint8Array {
+  if (typeof Buffer !== 'undefined') {
+    return new Uint8Array(Buffer.from(b64, 'base64'));
+  }
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
 export class QuorumCallArchive {
   /**
    * Encrypts a call recording with a client-side ephemeral master key, then splits
@@ -65,7 +88,7 @@ export class QuorumCallArchive {
       thresholdM,
       totalCustodiansN,
       ivHex: bytesToHex(iv),
-      ciphertextBase64: Buffer.from(new Uint8Array(ciphertextBuffer)).toString('base64'),
+      ciphertextBase64: uint8ToBase64(new Uint8Array(ciphertextBuffer)),
     };
 
     // Zeroize master key in volatile memory
@@ -100,7 +123,7 @@ export class QuorumCallArchive {
 
     // 2. Decrypt archive ciphertext
     const iv = hexToBytes(archive.ivHex);
-    const ciphertextBytes = new Uint8Array(Buffer.from(archive.ciphertextBase64, 'base64'));
+    const ciphertextBytes = base64ToUint8(archive.ciphertextBase64);
 
     const cryptoKey = await crypto.subtle.importKey(
       'raw',

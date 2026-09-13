@@ -29,6 +29,15 @@ export interface ZKMembershipProof {
 
 export class ZKMembershipEngine {
   /**
+   * Generates a valid Ed25519 member keypair for ZK Merkle group membership.
+   */
+  public static generateMemberKeyPair(): { privateKey: Uint8Array; publicKey: Uint8Array } {
+    const sk = ed25519.utils.randomPrivateKey();
+    const pk = ed25519.getPublicKey(sk);
+    return { privateKey: sk, publicKey: pk };
+  }
+
+  /**
    * Computes SHA-256 leaf hash for a member public key.
    */
   public static hashLeaf(publicKey: Uint8Array): string {
