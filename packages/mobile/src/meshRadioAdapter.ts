@@ -38,15 +38,66 @@ export class MeshRadioAdapter {
   }
 
   /**
+   * Evaluates physical radio hardware capabilities across native and browser execution targets.
+   */
+  public async getHardwareCapabilities(): Promise<{
+    bleAvailable: boolean;
+    wifiDirectAvailable: boolean;
+    nativePlatform: 'capacitor' | 'tauri' | 'web' | 'none';
+    isAirGapCapable: boolean;
+  }> {
+    if (typeof window === 'undefined') {
+      return { bleAvailable: false, wifiDirectAvailable: false, nativePlatform: 'none', isAirGapCapable: false };
+    }
+
+    const isCapacitor = !!(window as any).Capacitor?.isNativePlatform?.();
+    const isTauri = !!(window as any).__TAURI_INTERNALS__;
+    let webBleAvailable = false;
+
+    if (typeof navigator !== 'undefined' && (navigator as any).bluetooth?.getAvailability) {
+      try {
+        webBleAvailable = await (navigator as any).bluetooth.getAvailability();
+      } catch {
+        webBleAvailable = false;
+      }
+    }
+
+    const bleAvailable = isCapacitor || isTauri || webBleAvailable;
+    const wifiDirectAvailable = isCapacitor || isTauri;
+
+    return {
+      bleAvailable,
+      wifiDirectAvailable,
+      nativePlatform: isCapacitor ? 'capacitor' : isTauri ? 'tauri' : 'web',
+      isAirGapCapable: bleAvailable || wifiDirectAvailable,
+    };
+  }
+
+  /**
    * Start advertising local peer presence on Bluetooth LE & Wi-Fi Direct
    */
-  public async startAdvertising(roomId: string, localPeerId: string): Promise<void> {
+  public async startAdvertising(
+    roomId: string,
+    localPeerId: string
+  ): Promise<{ active: boolean; transport: string; isHardwareAvailable: boolean }> {
     this.activeRoomId = roomId;
     this.localPeerId = localPeerId;
     this.isAdvertising = true;
 
-    // In native runtime, calls Capacitor BLE Peripheral plugin or MultipeerConnectivity
-    console.log(`[MeshRadioAdapter] Started radio advertising for room: ${roomId}, peer: ${localPeerId}`);
+    const caps = await this.getHardwareCapabilities();
+    const transport = caps.nativePlatform === 'capacitor'
+      ? 'capacitor-ble-peripheral'
+      : caps.nativePlatform === 'tauri'
+      ? 'tauri-radio-multipeer'
+      : 'web-radio-beacon';
+
+    console.log(`[MeshRadioAdapter] Started radio advertising for room: ${roomId}, peer: ${localPeerId} (Transport: ${transport})`);
+
+    return {
+      active: true,
+      transport,
+      isHardwareAvailable: caps.isAirGapCapable,
+    };
   }
 
   /**

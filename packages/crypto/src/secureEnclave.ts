@@ -150,6 +150,19 @@ export class EnclaveKeyManager {
     keyId: string,
     peerPublicKeyBytes: Uint8Array
   ): Uint8Array {
+    for (const driver of this.registeredDrivers.values()) {
+      if (driver.isAvailable()) {
+        try {
+          const res = driver.computeSharedSecret(keyId, peerPublicKeyBytes);
+          if (!(res instanceof Promise) && res && res.length === 32) {
+            return res;
+          }
+        } catch {
+          // fallback to memory storage
+        }
+      }
+    }
+
     const privateKey = this.secureSiliconStorage.get(keyId);
     if (!privateKey) {
       throw new Error(`Enclave key [${keyId}] not found or wiped from secure silicon`);
@@ -163,14 +176,75 @@ export class EnclaveKeyManager {
   }
 
   /**
+   * Asynchronously performs Diffie-Hellman scalar multiplication supporting async drivers.
+   */
+  public static async computeEnclaveSharedSecretAsync(
+    keyId: string,
+    peerPublicKeyBytes: Uint8Array
+  ): Promise<Uint8Array> {
+    for (const driver of this.registeredDrivers.values()) {
+      if (driver.isAvailable()) {
+        try {
+          const res = await driver.computeSharedSecret(keyId, peerPublicKeyBytes);
+          if (res && res.length === 32) {
+            return res;
+          }
+        } catch {
+          // fallback to memory storage
+        }
+      }
+    }
+
+    return this.computeEnclaveSharedSecret(keyId, peerPublicKeyBytes);
+  }
+
+  /**
    * Zeroizes and securely destroys the enclave-rooted key.
    */
   public static destroyEnclaveKey(keyId: string): void {
+    for (const driver of this.registeredDrivers.values()) {
+      try {
+        const res = driver.destroyKey(keyId);
+        if (res instanceof Promise) {
+          res.catch(() => {});
+        }
+      } catch {
+        // ignore
+      }
+    }
     const key = this.secureSiliconStorage.get(keyId);
     if (key) {
       key.fill(0);
       this.secureSiliconStorage.delete(keyId);
     }
+  }
+
+  /**
+   * Asynchronously destroys the enclave key across drivers.
+   */
+  public static async destroyEnclaveKeyAsync(keyId: string): Promise<void> {
+    for (const driver of this.registeredDrivers.values()) {
+      try {
+        await driver.destroyKey(keyId);
+      } catch {
+        // ignore
+      }
+    }
+    this.destroyEnclaveKey(keyId);
+  }
+
+  /**
+   * Returns list of currently registered hardware drivers.
+   */
+  public static getRegisteredDrivers(): EnclaveHardwareDriver[] {
+    return Array.from(this.registeredDrivers.values());
+  }
+
+  /**
+   * Returns specific registered hardware driver by type.
+   */
+  public static getDriver(type: EnclaveType): EnclaveHardwareDriver | undefined {
+    return this.registeredDrivers.get(type);
   }
 }
 

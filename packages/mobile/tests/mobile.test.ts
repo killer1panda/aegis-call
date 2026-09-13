@@ -78,6 +78,11 @@ describe('Aegis Mobile MeshRadioAdapter', () => {
     const sent = await adapter.sendMeshPayload('peer-bob-radio', 'v=0;sdp-offer');
     expect(sent).toBe(true);
 
+    const caps = await adapter.getHardwareCapabilities();
+    expect(caps).toBeDefined();
+    expect(typeof caps.bleAvailable).toBe('boolean');
+    expect(typeof caps.isAirGapCapable).toBe('boolean');
+
     await adapter.stop();
   });
 });

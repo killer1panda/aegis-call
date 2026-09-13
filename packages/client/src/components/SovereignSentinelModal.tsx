@@ -481,9 +481,18 @@ export const SovereignSentinelModal: React.FC<SovereignSentinelModalProps> = ({
                     Generate Enclave Keypair
                   </button>
                   {enclaveKeyPair && (
-                    <div className="text-xs font-mono text-cyber-emerald flex items-center gap-1.5">
-                      <CheckCircle2 className="w-4 h-4" />
-                      Enclave Key: {enclaveKeyPair.publicKeyHex.slice(0, 20)}... (Non-Extractable)
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div className="text-xs font-mono text-cyber-emerald flex items-center gap-1.5">
+                        <CheckCircle2 className="w-4 h-4" />
+                        Enclave Key: {enclaveKeyPair.publicKeyHex.slice(0, 16)}...
+                      </div>
+                      <span className={`text-[10px] font-mono px-2 py-0.5 rounded border ${
+                        enclaveKeyPair.isEmulated
+                          ? 'bg-amber-500/10 border-amber-500/30 text-amber-400'
+                          : 'bg-cyber-emerald/10 border-cyber-emerald/30 text-cyber-emerald'
+                      }`}>
+                        {enclaveKeyPair.isEmulated ? 'Software Shim' : 'Hardware Silicon Rooted'}
+                      </span>
                     </div>
                   )}
                 </div>

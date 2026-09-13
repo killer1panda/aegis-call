@@ -20,6 +20,7 @@ const SocialRecoveryModal = lazy(() => import('./components/SocialRecoveryModal.
 const TelephonyDialpadModal = lazy(() => import('./components/TelephonyDialpadModal.js').then(m => ({ default: m.TelephonyDialpadModal })));
 const TransportSelectorModal = lazy(() => import('./components/TransportSelector.js').then(m => ({ default: m.TransportSelectorModal })));
 const SovereignSentinelModal = lazy(() => import('./components/SovereignSentinelModal.js').then(m => ({ default: m.SovereignSentinelModal })));
+import { HardwareEnclaveService } from './services/hardwareEnclaveService.js';
 
 export function App() {
   // Read room from URL search params if present
@@ -123,6 +124,13 @@ export function App() {
       addIncomingCaption(incomingCaption.text, 'peer');
     }
   }, [incomingCaption, addIncomingCaption]);
+
+  // Initialize native hardware secure enclave bridge (Tauri SEP/TPM or WebAuthn PRF)
+  useEffect(() => {
+    HardwareEnclaveService.getInstance().initialize().catch((err) => {
+      console.warn('[Aegis] Hardware enclave initialization failed:', err);
+    });
+  }, []);
 
   // High-Assurance Room Hardware Gate (FIDO2 / YubiKey touch challenge)
   const isHighAssuranceRoom =

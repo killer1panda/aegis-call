@@ -151,7 +151,13 @@ describe('AegisCall Hardware Secure Enclave & Remote Attestation Subsystem', () 
     expect(hwKey.keyId).toBe('hardware-sep-key-999');
     expect(hwKey.hardwareBacked).toBe(true);
     expect(hwKey.isEmulated).toBe(false);
-    expect(hwKey.driver).toBe('tauri-macos-sep-hardware-bridge');
+    const sharedSecret = EnclaveKeyManager.computeEnclaveSharedSecret(hwKey.keyId, new Uint8Array(32).fill(0x11));
+    expect(sharedSecret).toEqual(new Uint8Array(32).fill(0x33));
+
+    const drivers = EnclaveKeyManager.getRegisteredDrivers();
+    expect(drivers).toHaveLength(1);
+    expect(drivers[0].name).toBe('tauri-macos-sep-hardware-bridge');
+    expect(EnclaveKeyManager.getDriver('apple-sep')).toBeDefined();
 
     // Clean up driver
     EnclaveKeyManager.unregisterHardwareDriver('apple-sep');
