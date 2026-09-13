@@ -383,11 +383,11 @@ export const CallRoom: React.FC<CallRoomProps> = ({
         )}
 
         {/* Top Right Zero-Trust SFU & Bio-Acoustic Indicator */}
-        <div className="absolute top-4 right-4 flex flex-wrap items-center gap-2 z-20">
+        <div className="absolute top-4 right-4 flex flex-wrap items-center gap-1.5 sm:gap-2 z-20 max-w-[60vw] sm:max-w-none justify-end">
           {acousticAuthenticityScore !== undefined && (
             <div
               title={`Bio-Acoustic Voice Analysis: ${acousticAuthenticityScore}% authentic human phonation`}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl backdrop-blur-md border text-[11px] font-mono transition-colors ${
+              className={`flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1 sm:py-1.5 rounded-xl backdrop-blur-md border text-[10px] sm:text-[11px] font-mono transition-colors ${
                 acousticAuthenticityScore >= 80
                   ? 'bg-cyber-emerald/15 border-cyber-emerald/40 text-cyber-emerald'
                   : acousticAuthenticityScore >= 50
@@ -395,20 +395,25 @@ export const CallRoom: React.FC<CallRoomProps> = ({
                   : 'bg-cyber-rose/25 border-cyber-rose/60 text-cyber-rose animate-pulse'
               }`}
             >
-              <Sparkles className="w-3.5 h-3.5" aria-hidden="true" />
+              <Sparkles className="w-3 h-3 sm:w-3.5 sm:h-3.5 shrink-0" aria-hidden="true" />
               <span>
-                Bio-Acoustic: {acousticAuthenticityScore}%{' '}
-                {acousticAuthenticityScore < 50 ? '⚠️ Synthetic/Clone Risk' : 'Authentic'}
+                <span className="hidden sm:inline">Bio-Acoustic: </span>
+                {acousticAuthenticityScore}%{' '}
+                <span className="hidden md:inline">
+                  {acousticAuthenticityScore < 50 ? '⚠️ Synthetic/Clone Risk' : 'Authentic'}
+                </span>
               </span>
             </div>
           )}
 
-          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-dark-900/80 backdrop-blur-md border border-dark-750 text-[11px] font-mono text-slate-300 pointer-events-none">
-            <span className="w-2 h-2 rounded-full bg-cyber-emerald animate-pulse" />
-            <span>Zero-Trust SFU • SFrame • ML-KEM-768</span>
+          <div className="flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1 sm:py-1.5 rounded-xl bg-dark-900/80 backdrop-blur-md border border-dark-750 text-[10px] sm:text-[11px] font-mono text-slate-300 pointer-events-none">
+            <span className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-cyber-emerald animate-pulse shrink-0" />
+            <span className="hidden md:inline">Zero-Trust SFU • </span>
+            <span className="hidden sm:inline">SFrame • </span>
+            <span>ML-KEM-768</span>
           </div>
           {simulcastTier && (
-            <div className="px-2.5 py-1.5 rounded-xl bg-dark-900/80 backdrop-blur-md border border-cyber-cyan/30 text-[10px] font-mono text-cyber-cyan uppercase">
+            <div className="hidden sm:block px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-xl bg-dark-900/80 backdrop-blur-md border border-cyber-cyan/30 text-[9px] sm:text-[10px] font-mono text-cyber-cyan uppercase">
               {simulcastTier === 'auto' ? 'Simulcast: Auto' : `Simulcast: ${simulcastTier}`}
             </div>
           )}
@@ -420,20 +425,21 @@ export const CallRoom: React.FC<CallRoomProps> = ({
             <button
               onClick={onOpenSecurity}
               aria-label="Open Security Verification Modal"
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl backdrop-blur-md border text-xs font-medium transition-all focus-visible:ring-2 focus-visible:ring-cyber-emerald focus-visible:outline-none ${
+              className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-xl backdrop-blur-md border text-[11px] sm:text-xs font-medium transition-all focus-visible:ring-2 focus-visible:ring-cyber-emerald focus-visible:outline-none ${
                 isMutuallyVerified
                   ? 'bg-cyber-emerald/20 border-cyber-emerald/40 text-cyber-emerald'
                   : 'bg-dark-900/80 border-dark-700 text-slate-200 hover:bg-dark-800'
               }`}
             >
               {isMutuallyVerified ? (
-                <ShieldCheck className="w-4 h-4 text-cyber-emerald" aria-hidden="true" />
+                <ShieldCheck className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-cyber-emerald" aria-hidden="true" />
               ) : isSelfVerified ? (
-                <Shield className="w-4 h-4 text-cyber-cyan" aria-hidden="true" />
+                <Shield className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-cyber-cyan" aria-hidden="true" />
               ) : (
-                <ShieldAlert className="w-4 h-4 text-cyber-amber" aria-hidden="true" />
+                <ShieldAlert className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-cyber-amber" aria-hidden="true" />
               )}
-              <span>{isMutuallyVerified ? 'Mutually Authenticated' : 'Remote Peer'}</span>
+              <span className="hidden sm:inline">{isMutuallyVerified ? 'Mutually Authenticated' : 'Remote Peer'}</span>
+              <span className="sm:hidden">{isMutuallyVerified ? 'Verified' : 'Peer'}</span>
             </button>
 
             {/* Speaking audio indicator */}

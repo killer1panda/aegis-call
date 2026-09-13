@@ -1,23 +1,25 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { Navbar } from './components/Navbar.js';
 import { Lobby } from './components/Lobby.js';
 import { CallRoom } from './components/CallRoom.js';
-import { SecurityBadge } from './components/SecurityBadge.js';
-import { NetworkStatsHUD } from './components/NetworkStatsHUD.js';
-import { EncryptedChat } from './components/EncryptedChat.js';
-import { FileDropModal } from './components/FileDropModal.js';
-import { WhiteboardModal } from './components/WhiteboardModal.js';
-import { ScratchpadModal } from './components/ScratchpadModal.js';
-import { DuressUnlockModal } from './components/DuressUnlockModal.js';
-import { HardwareGateModal } from './components/HardwareGateModal.js';
-import { SocialRecoveryModal } from './components/SocialRecoveryModal.js';
-import { TelephonyDialpadModal } from './components/TelephonyDialpadModal.js';
-import { TransportSelectorModal, SignalingTransportType } from './components/TransportSelector.js';
-import { SovereignSentinelModal } from './components/SovereignSentinelModal.js';
+import type { SignalingTransportType } from './components/TransportSelector.js';
 import { useWebRTC } from './hooks/useWebRTC.js';
 import { useLiveCaptions } from './hooks/useLiveCaptions.js';
 import { useVideoPrivacyMask } from './hooks/useVideoPrivacyMask.js';
 import { ShieldCheck, RotateCcw } from 'lucide-react';
+
+const SecurityBadge = lazy(() => import('./components/SecurityBadge.js').then(m => ({ default: m.SecurityBadge })));
+const NetworkStatsHUD = lazy(() => import('./components/NetworkStatsHUD.js').then(m => ({ default: m.NetworkStatsHUD })));
+const EncryptedChat = lazy(() => import('./components/EncryptedChat.js').then(m => ({ default: m.EncryptedChat })));
+const FileDropModal = lazy(() => import('./components/FileDropModal.js').then(m => ({ default: m.FileDropModal })));
+const WhiteboardModal = lazy(() => import('./components/WhiteboardModal.js').then(m => ({ default: m.WhiteboardModal })));
+const ScratchpadModal = lazy(() => import('./components/ScratchpadModal.js').then(m => ({ default: m.ScratchpadModal })));
+const DuressUnlockModal = lazy(() => import('./components/DuressUnlockModal.js').then(m => ({ default: m.DuressUnlockModal })));
+const HardwareGateModal = lazy(() => import('./components/HardwareGateModal.js').then(m => ({ default: m.HardwareGateModal })));
+const SocialRecoveryModal = lazy(() => import('./components/SocialRecoveryModal.js').then(m => ({ default: m.SocialRecoveryModal })));
+const TelephonyDialpadModal = lazy(() => import('./components/TelephonyDialpadModal.js').then(m => ({ default: m.TelephonyDialpadModal })));
+const TransportSelectorModal = lazy(() => import('./components/TransportSelector.js').then(m => ({ default: m.TransportSelectorModal })));
+const SovereignSentinelModal = lazy(() => import('./components/SovereignSentinelModal.js').then(m => ({ default: m.SovereignSentinelModal })));
 
 export function App() {
   // Read room from URL search params if present
@@ -301,116 +303,131 @@ export function App() {
         )}
       </main>
 
-      {/* Security Numbers & MitM Verification Modal */}
-      <SecurityBadge
-        isOpen={isSecurityOpen}
-        onClose={() => setIsSecurityOpen(false)}
-        safetyNumbers={safetyNumbers}
-        isSelfVerified={isSelfVerified}
-        isPeerVerified={isPeerVerified}
-        onMarkVerified={markVerified}
-        roomId={roomId}
-        localDid={localDid}
-        remoteDid={remoteDid}
-      />
+      {/* Dynamic Auxiliary Security & Utility Modals (Code-Split via React.lazy) */}
+      <Suspense fallback={null}>
+        {isSecurityOpen && (
+          <SecurityBadge
+            isOpen={isSecurityOpen}
+            onClose={() => setIsSecurityOpen(false)}
+            safetyNumbers={safetyNumbers}
+            isSelfVerified={isSelfVerified}
+            isPeerVerified={isPeerVerified}
+            onMarkVerified={markVerified}
+            roomId={roomId}
+            localDid={localDid}
+            remoteDid={remoteDid}
+          />
+        )}
 
-      {/* Real-time Diagnostics HUD */}
-      <NetworkStatsHUD
-        isOpen={isHUDOpen}
-        onClose={() => setIsHUDOpen(false)}
-        networkStats={networkStats}
-        cryptoStats={cryptoStats}
-        simulcastTier={simulcastTier}
-        onSetSimulcastTier={setSimulcastTier}
-        abrTelemetry={abrTelemetry}
-      />
+        {isHUDOpen && (
+          <NetworkStatsHUD
+            isOpen={isHUDOpen}
+            onClose={() => setIsHUDOpen(false)}
+            networkStats={networkStats}
+            cryptoStats={cryptoStats}
+            simulcastTier={simulcastTier}
+            onSetSimulcastTier={setSimulcastTier}
+            abrTelemetry={abrTelemetry}
+          />
+        )}
 
-      {/* End-to-End Encrypted DataChannel Chat Drawer */}
-      <EncryptedChat
-        isOpen={isChatOpen}
-        onClose={() => setIsChatOpen(false)}
-        messages={messages}
-        onSendMessage={sendMessage}
-      />
+        {isChatOpen && (
+          <EncryptedChat
+            isOpen={isChatOpen}
+            onClose={() => setIsChatOpen(false)}
+            messages={messages}
+            onSendMessage={sendMessage}
+          />
+        )}
 
-      {/* P2P Encrypted File Drop Modal */}
-      <FileDropModal
-        isOpen={isFileDropOpen}
-        onClose={() => setIsFileDropOpen(false)}
-        onSendFile={sendFile}
-        transferProgress={transferProgress}
-        receivedFiles={receivedFiles}
-        isDataChannelOpen={isDataChannelOpen}
-      />
+        {isFileDropOpen && (
+          <FileDropModal
+            isOpen={isFileDropOpen}
+            onClose={() => setIsFileDropOpen(false)}
+            onSendFile={sendFile}
+            transferProgress={transferProgress}
+            receivedFiles={receivedFiles}
+            isDataChannelOpen={isDataChannelOpen}
+          />
+        )}
 
-      {/* Zero-Knowledge Collaborative Whiteboard Modal */}
-      <WhiteboardModal
-        isOpen={isWhiteboardOpen}
-        onClose={() => setIsWhiteboardOpen(false)}
-        onBroadcastStroke={broadcastStroke}
-        incomingStroke={incomingStroke}
-        isDataChannelOpen={isDataChannelOpen}
-      />
+        {isWhiteboardOpen && (
+          <WhiteboardModal
+            isOpen={isWhiteboardOpen}
+            onClose={() => setIsWhiteboardOpen(false)}
+            onBroadcastStroke={broadcastStroke}
+            incomingStroke={incomingStroke}
+            isDataChannelOpen={isDataChannelOpen}
+          />
+        )}
 
-      {/* Ephemeral Self-Shredding Scratchpad Modal */}
-      <ScratchpadModal
-        isOpen={isScratchpadOpen}
-        onClose={() => setIsScratchpadOpen(false)}
-        onBroadcastText={broadcastScratchpadText}
-        incomingText={incomingScratchpadText}
-        isDataChannelOpen={isDataChannelOpen}
-      />
+        {isScratchpadOpen && (
+          <ScratchpadModal
+            isOpen={isScratchpadOpen}
+            onClose={() => setIsScratchpadOpen(false)}
+            onBroadcastText={broadcastScratchpadText}
+            incomingText={incomingScratchpadText}
+            isDataChannelOpen={isDataChannelOpen}
+          />
+        )}
 
-      {/* Duress Mode & Dead Man's Switch Unlock Modal */}
-      <DuressUnlockModal
-        isOpen={isDuressOpen}
-        onClose={() => setIsDuressOpen(false)}
-        onUnlockSuccess={(isDecoy) => {
-          if (isDecoy) {
-            triggerDuressWipe();
-          }
-        }}
-        onUpdateDeadManTimeout={setDeadManTimeoutMinutes}
-        currentDeadManTimeout={deadManTimeoutMinutes}
-      />
+        {isDuressOpen && (
+          <DuressUnlockModal
+            isOpen={isDuressOpen}
+            onClose={() => setIsDuressOpen(false)}
+            onUnlockSuccess={(isDecoy) => {
+              if (isDecoy) {
+                triggerDuressWipe();
+              }
+            }}
+            onUpdateDeadManTimeout={setDeadManTimeoutMinutes}
+            currentDeadManTimeout={deadManTimeoutMinutes}
+          />
+        )}
 
-      {/* High-Assurance FIDO2 / YubiKey Hardware Token Gate */}
-      <HardwareGateModal
-        isOpen={isHardwareGateOpen}
-        onClose={() => setIsHardwareGateOpen(false)}
-        onGatePassed={handleHardwareGatePassed}
-        roomId={roomId}
-      />
+        {isHardwareGateOpen && (
+          <HardwareGateModal
+            isOpen={isHardwareGateOpen}
+            onClose={() => setIsHardwareGateOpen(false)}
+            onGatePassed={handleHardwareGatePassed}
+            roomId={roomId}
+          />
+        )}
 
-      {/* Shamir's Secret Sharing (SSS) Social Key Recovery Modal */}
-      <SocialRecoveryModal
-        isOpen={isSocialRecoveryOpen}
-        onClose={() => setIsSocialRecoveryOpen(false)}
-        masterKeyHex={localDid || undefined}
-      />
+        {isSocialRecoveryOpen && (
+          <SocialRecoveryModal
+            isOpen={isSocialRecoveryOpen}
+            onClose={() => setIsSocialRecoveryOpen(false)}
+            masterKeyHex={localDid || undefined}
+          />
+        )}
 
-      {/* Sovereign Telephony SIP/PSTN Dialpad Modal */}
-      <TelephonyDialpadModal
-        isOpen={isTelephonyOpen}
-        onClose={() => setIsTelephonyOpen(false)}
-        roomId={roomId}
-      />
+        {isTelephonyOpen && (
+          <TelephonyDialpadModal
+            isOpen={isTelephonyOpen}
+            onClose={() => setIsTelephonyOpen(false)}
+            roomId={roomId}
+          />
+        )}
 
-      {/* Censorship-Resistant Signaling Transport Selector Modal */}
-      <TransportSelectorModal
-        isOpen={isTransportSelectorOpen}
-        onClose={() => setIsTransportSelectorOpen(false)}
-        selectedTransport={selectedTransport}
-        onSelectTransport={setSelectedTransport}
-      />
+        {isTransportSelectorOpen && (
+          <TransportSelectorModal
+            isOpen={isTransportSelectorOpen}
+            onClose={() => setIsTransportSelectorOpen(false)}
+            selectedTransport={selectedTransport}
+            onSelectTransport={setSelectedTransport}
+          />
+        )}
 
-      {/* Sovereign Sentinel & Anti-Surveillance Suite Modal */}
-      <SovereignSentinelModal
-        isOpen={isSentinelOpen}
-        onClose={() => setIsSentinelOpen(false)}
-        roomId={roomId}
-        localDid={localDid || undefined}
-      />
+        {isSentinelOpen && (
+          <SovereignSentinelModal
+            isOpen={isSentinelOpen}
+            onClose={() => setIsSentinelOpen(false)}
+            roomId={roomId}
+            localDid={localDid || undefined}
+          />
+        )}
+      </Suspense>
 
       {/* Decoy Mode Banner */}
       {isDecoyMode && (

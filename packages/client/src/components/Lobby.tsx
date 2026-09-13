@@ -52,6 +52,7 @@ export const Lobby: React.FC<LobbyProps> = ({
 }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [copied, setCopied] = React.useState(false);
+  const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { volume } = useAudioVisualizer(localStream, !isAudioMuted);
 
   useEffect(() => {
@@ -60,11 +61,38 @@ export const Lobby: React.FC<LobbyProps> = ({
     }
   }, [localStream]);
 
-  const copyInvite = () => {
+  useEffect(() => {
+    return () => {
+      if (copyTimeoutRef.current) {
+        clearTimeout(copyTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  const copyInvite = async () => {
     const url = `${window.location.origin}${window.location.pathname}?room=${roomId}`;
-    navigator.clipboard.writeText(url);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(url);
+      } else {
+        const textArea = document.createElement('textarea');
+        textArea.value = url;
+        textArea.style.position = 'fixed';
+        textArea.style.opacity = '0';
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+      }
+      setCopied(true);
+      if (copyTimeoutRef.current) {
+        clearTimeout(copyTimeoutRef.current);
+      }
+      copyTimeoutRef.current = setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.warn('[Lobby] Failed to copy invite link to clipboard:', err);
+    }
   };
 
   const generateRandomRoom = () => {
