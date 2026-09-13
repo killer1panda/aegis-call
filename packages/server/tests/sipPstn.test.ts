@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { G711Codec, SipProtocolEngine, SipPstnGateway } from '../src/sipPstnGateway.js';
 import { createServer } from '../src/server.js';
+import dgram from 'dgram';
 
 describe('Sovereign SIP Trunking & PSTN Gateway', () => {
   it('should encode and decode G.711 mu-law and A-law PCM with high speech fidelity', () => {
@@ -173,5 +174,33 @@ describe('Sovereign SIP Trunking & PSTN Gateway', () => {
     const hangupData = JSON.parse(hangupRes.body);
     expect(hangupData.session.state).toBe('terminated');
     expect(hangupData.byeMessage).toContain('BYE');
+  });
+
+  it('should bind an authentic RFC 3261 UDP socket and handle SIP datagrams', async () => {
+    const gateway = new SipPstnGateway('127.0.0.1');
+    const port = await gateway.startUdpListener(0, '127.0.0.1');
+    expect(port).toBeGreaterThan(0);
+
+    const client = dgram.createSocket('udp4');
+    const fromUri = 'sip:test@udp.client';
+    const toUri = 'sip:aegis@gateway';
+    const callId = `udp-test-${Date.now()}`;
+    const invite = SipProtocolEngine.createInvite(fromUri, toUri, callId, 'tag-1', '127.0.0.1');
+
+    const responsePromise = new Promise<string>((resolve) => {
+      client.on('message', (msg) => {
+        resolve(msg.toString('utf-8'));
+      });
+    });
+
+    const inviteBuf = Buffer.from(invite, 'utf-8');
+    client.send(inviteBuf, 0, inviteBuf.length, port, '127.0.0.1');
+
+    const rawResponse = await responsePromise;
+    expect(rawResponse).toContain('SIP/2.0 200 OK');
+    expect(rawResponse).toContain(`Call-ID: ${callId}`);
+
+    client.close();
+    gateway.stopUdpListener();
   });
 });

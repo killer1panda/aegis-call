@@ -6,6 +6,7 @@
  */
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import dgram from 'dgram';
 
 export type SipCallState = 'idle' | 'calling' | 'ringing' | 'connected' | 'terminated';
 
@@ -384,6 +385,48 @@ export class SipPstnGateway {
 
   public getAllSessions(): SipSession[] {
     return Array.from(this.sessions.values());
+  }
+
+  private udpSocket: dgram.Socket | null = null;
+
+  /**
+   * Binds an authentic RFC 3261 UDP socket for receiving and replying to SIP datagrams
+   */
+  public startUdpListener(port: number = 5060, host: string = '0.0.0.0'): Promise<number> {
+    return new Promise((resolve, reject) => {
+      try {
+        const socket = dgram.createSocket('udp4');
+        socket.on('message', (msg, rinfo) => {
+          const rawMessage = msg.toString('utf-8');
+          const { response } = this.handleIncomingMessage(rawMessage);
+          if (response) {
+            const respBuf = Buffer.from(response, 'utf-8');
+            socket.send(respBuf, 0, respBuf.length, rinfo.port, rinfo.address, (err) => {
+              if (err) console.error('[SIP/UDP] Error sending response to', rinfo.address, err);
+            });
+          }
+        });
+        socket.on('error', (err) => {
+          console.warn('[SIP/UDP] Socket error:', err.message);
+        });
+        socket.bind(port, host, () => {
+          this.udpSocket = socket;
+          const address = socket.address();
+          resolve(typeof address === 'object' && address ? address.port : port);
+        });
+      } catch (err) {
+        reject(err);
+      }
+    });
+  }
+
+  public stopUdpListener(): void {
+    if (this.udpSocket) {
+      try {
+        this.udpSocket.close();
+      } catch {}
+      this.udpSocket = null;
+    }
   }
 }
 

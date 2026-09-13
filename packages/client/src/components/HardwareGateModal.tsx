@@ -53,14 +53,8 @@ export const HardwareGateModal: React.FC<HardwareGateModalProps> = ({
       if (err.name === 'NotAllowedError') {
         setErrorMsg('Hardware touch prompt was cancelled or timed out.');
       } else {
-        // In local/test environment where credentials aren't registered, allow simulation fallback
-        console.warn('WebAuthn challenge error:', err);
-        setPassed(true);
-        setStatusMsg('Simulated Hardware Token Touch Accepted (Dev Mode)');
-        setTimeout(() => {
-          onGatePassed();
-          onClose();
-        }, 1000);
+        console.error('WebAuthn challenge error:', err);
+        setErrorMsg(err?.message || 'Authentication Failed: Physical Hardware Token Not Detected or Verified.');
       }
     } finally {
       setIsChallenging(false);

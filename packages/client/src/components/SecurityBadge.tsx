@@ -70,22 +70,9 @@ export const SecurityBadge: React.FC<SecurityBadgeProps> = ({
     const numCode = safetyNumbers?.numericCode || '00000-00000-00000-00000';
 
     if (!NFCVerificationService.isSupported()) {
-      // Out-of-band simulated NFC tap for desktop/unsupported browser runtimes
-      setTimeout(() => {
-        TrustedContactsRegistry.pinContact({
-          did: remoteDid || 'did:key:zAegisNfcPeer',
-          alias: `NFC Peer (${roomId.slice(0, 8)})`,
-          publicKeyHex: pubHex,
-          verifiedAt: Date.now(),
-          hardwareAttested: true,
-          verificationMethod: 'nfc-proximity',
-        });
-        setIsPeerPinned(true);
-        onMarkVerified();
-        setNfcStatus('NFC Tap Verified & Peer Pinned! (Proximity SAS Confirmed)');
-        setIsNfcScanning(false);
-        setTimeout(() => setNfcStatus(null), 4000);
-      }, 900);
+      setNfcStatus('NFC hardware is not supported on this device or browser. Please verify using QR Code scan or compare Safety Numbers.');
+      setIsNfcScanning(false);
+      setTimeout(() => setNfcStatus(null), 5000);
       return;
     }
 

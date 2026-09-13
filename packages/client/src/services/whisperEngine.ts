@@ -16,8 +16,9 @@ export class WhisperEngine {
   private static instance: WhisperEngine | null = null;
   private isRunning: boolean = false;
   private audioContext: AudioContext | null = null;
-  private processorNode: ScriptProcessorNode | null = null;
+  private analyserNode: AnalyserNode | null = null;
   private sourceNode: MediaStreamAudioSourceNode | null = null;
+  private timerId: ReturnType<typeof setInterval> | null = null;
 
   public static getInstance(): WhisperEngine {
     if (!WhisperEngine.instance) {
@@ -89,6 +90,7 @@ export class WhisperEngine {
 
   /**
    * Start streaming continuous transcription from an active MediaStream
+   * Uses modern non-deprecated AnalyserNode polling to eliminate main-thread jank.
    */
   public startContinuousTranscription(
     stream: MediaStream,
@@ -101,22 +103,23 @@ export class WhisperEngine {
       this.audioContext = new AudioCtx({ sampleRate: 16000 });
       this.sourceNode = this.audioContext.createMediaStreamSource(stream);
 
-      // ScriptProcessor buffer (4096 samples at 16 kHz = 256 ms chunk)
-      this.processorNode = this.audioContext.createScriptProcessor(4096, 1, 1);
-      this.isRunning = true;
+      // Modern non-deprecated AnalyserNode (eliminates ScriptProcessor main-thread jank)
+      this.analyserNode = this.audioContext.createAnalyser();
+      this.analyserNode.fftSize = 4096;
+      this.sourceNode.connect(this.analyserNode);
 
-      this.processorNode.onaudioprocess = async (e) => {
-        if (!this.isRunning) return;
-        const inputData = e.inputBuffer.getChannelData(0);
-        const copy = new Float32Array(inputData);
+      this.isRunning = true;
+      const pcmBuffer = new Float32Array(4096);
+
+      this.timerId = setInterval(async () => {
+        if (!this.isRunning || !this.analyserNode) return;
+        this.analyserNode.getFloatTimeDomainData(pcmBuffer);
+        const copy = new Float32Array(pcmBuffer);
         const result = await this.transcribePcmChunk(copy, 16000);
         if (result.text) {
           onTranscript(result);
         }
-      };
-
-      this.sourceNode.connect(this.processorNode);
-      this.processorNode.connect(this.audioContext.destination);
+      }, 256); // 256ms chunk matching 4096 samples at 16 kHz
     } catch (err) {
       console.warn('[WhisperEngine] Failed to initialize local audio transcription pipeline:', err);
     }
@@ -126,13 +129,17 @@ export class WhisperEngine {
 
   public stop(): void {
     this.isRunning = false;
+    if (this.timerId) {
+      clearInterval(this.timerId);
+      this.timerId = null;
+    }
     if (this.sourceNode) {
       this.sourceNode.disconnect();
       this.sourceNode = null;
     }
-    if (this.processorNode) {
-      this.processorNode.disconnect();
-      this.processorNode = null;
+    if (this.analyserNode) {
+      this.analyserNode.disconnect();
+      this.analyserNode = null;
     }
     if (this.audioContext && this.audioContext.state !== 'closed') {
       this.audioContext.close();
