@@ -19,6 +19,11 @@ export function createServer(): FastifyInstance {
 
   const roomManager = new RoomManager();
   const sipGateway = new SipPstnGateway();
+  (server as any).sipGateway = sipGateway;
+
+  server.addHook('onClose', async () => {
+    sipGateway.stopUdpListener();
+  });
 
   server.register(cors, {
     origin: '*',
@@ -209,7 +214,7 @@ export function createServer(): FastifyInstance {
 if (process.argv[1]?.endsWith('server.ts') || process.argv[1]?.endsWith('server.js')) {
   const PORT = parseInt(process.env.PORT || '4000', 10);
   const server = createServer();
-  server.listen({ port: PORT, host: '0.0.0.0' }, (err, address) => {
+  server.listen({ port: PORT, host: '0.0.0.0' }, async (err, address) => {
     if (err) {
       console.error('Failed to start Aegis signaling server:', err);
       process.exit(1);
@@ -217,5 +222,23 @@ if (process.argv[1]?.endsWith('server.ts') || process.argv[1]?.endsWith('server.
     console.log(`🛡️  Aegis E2EE Signaling Server running at: ${address}`);
     console.log(`📡 WebSocket endpoint: ws://localhost:${PORT}/ws`);
     console.log(`🩺 Health check: http://localhost:${PORT}/health`);
+
+    if (process.env.ENABLE_SIP_UDP !== 'false') {
+      const sipPort = parseInt(process.env.SIP_UDP_PORT || '5060', 10);
+      try {
+        const boundPort = await (server as any).sipGateway?.startUdpListener(sipPort, '0.0.0.0');
+        console.log(`📞 SIP/PSTN RFC 3261 UDP Gateway listening on port: ${boundPort}`);
+      } catch (sipErr: any) {
+        console.warn(`[SIP/UDP] Could not bind UDP port ${sipPort}:`, sipErr.message);
+      }
+    }
   });
+
+  const shutdown = async () => {
+    console.log('Gracefully shutting down Aegis server...');
+    await server.close();
+    process.exit(0);
+  };
+  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
 }

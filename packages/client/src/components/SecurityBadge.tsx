@@ -61,20 +61,21 @@ export const SecurityBadge: React.FC<SecurityBadgeProps> = ({
   const [nfcStatus, setNfcStatus] = useState<string | null>(null);
   const [isNfcScanning, setIsNfcScanning] = useState(false);
   const identityKeyPairRef = React.useRef(generateIdentityKeyPair());
+  const isNfcSupported = NFCVerificationService.isSupported();
 
   const handleNFCPairing = async () => {
+    if (!NFCVerificationService.isSupported()) {
+      setIsNfcScanning(false);
+      setNfcStatus('NFC hardware is unavailable on this device or browser. Please verify using SAS QR Code scan or compare Safety Numbers.');
+      setTimeout(() => setNfcStatus(null), 5000);
+      return;
+    }
+
     setIsNfcScanning(true);
     setNfcStatus('Hold phone near peer device to tap...');
 
     const pubHex = safetyNumbers?.hexFingerprint || (remoteDid || localDid || 'aegis-default-peer');
     const numCode = safetyNumbers?.numericCode || '00000-00000-00000-00000';
-
-    if (!NFCVerificationService.isSupported()) {
-      setNfcStatus('NFC hardware is not supported on this device or browser. Please verify using QR Code scan or compare Safety Numbers.');
-      setIsNfcScanning(false);
-      setTimeout(() => setNfcStatus(null), 5000);
-      return;
-    }
 
     try {
       const pubKeyBytes = new TextEncoder().encode(pubHex.slice(0, 32));
@@ -480,13 +481,28 @@ export const SecurityBadge: React.FC<SecurityBadgeProps> = ({
               <div className="space-y-1.5 pt-1">
                 <button
                   onClick={handleNFCPairing}
-                  disabled={isNfcScanning}
+                  disabled={!isNfcSupported || isNfcScanning}
                   data-testid="nfc-verify-btn"
-                  className="w-full py-2 px-3 rounded-lg bg-dark-850 hover:bg-dark-800 border border-dark-750 text-xs font-mono text-cyber-emerald flex items-center justify-center gap-1.5 transition-colors focus-visible:ring-2 focus-visible:ring-cyber-emerald focus-visible:outline-none disabled:opacity-50"
+                  className={`w-full py-2 px-3 rounded-lg border text-xs font-mono flex items-center justify-center gap-1.5 transition-colors focus-visible:ring-2 focus-visible:ring-cyber-emerald focus-visible:outline-none ${
+                    !isNfcSupported
+                      ? 'bg-dark-900 border-dark-800 text-slate-500 cursor-not-allowed opacity-60'
+                      : 'bg-dark-850 hover:bg-dark-800 border-dark-750 text-cyber-emerald disabled:opacity-50'
+                  }`}
                 >
-                  <Radio className={`w-3.5 h-3.5 ${isNfcScanning ? 'animate-pulse text-cyber-cyan' : 'text-cyber-emerald'}`} />
-                  <span>{isNfcScanning ? 'NFC Scanning Active...' : 'NFC Tap to Verify (Proximity SAS)'}</span>
+                  <Radio className={`w-3.5 h-3.5 ${isNfcScanning ? 'animate-pulse text-cyber-cyan' : !isNfcSupported ? 'text-slate-600' : 'text-cyber-emerald'}`} />
+                  <span>
+                    {!isNfcSupported
+                      ? 'NFC Hardware Unavailable on this Device'
+                      : isNfcScanning
+                      ? 'NFC Scanning Active...'
+                      : 'NFC Tap to Verify (Proximity SAS)'}
+                  </span>
                 </button>
+                {!isNfcSupported && (
+                  <div className="p-2 rounded-lg text-[10px] font-mono border bg-dark-900 border-dark-800 text-slate-400 leading-tight">
+                    NFC hardware unavailable on this platform. Use SAS QR code or manual emoji matching to authenticate.
+                  </div>
+                )}
                 {nfcStatus && (
                   <div className="p-2 rounded-lg text-[10px] font-mono border bg-cyber-emerald/15 border-cyber-emerald/40 text-cyber-emerald">
                     {nfcStatus}

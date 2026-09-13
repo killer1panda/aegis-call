@@ -50,11 +50,13 @@ export const HardwareGateModal: React.FC<HardwareGateModalProps> = ({
         }, 800);
       }
     } catch (err: any) {
+      setPassed(false);
+      setStatusMsg(null);
       if (err.name === 'NotAllowedError') {
-        setErrorMsg('Hardware touch prompt was cancelled or timed out.');
+        setErrorMsg('Hardware Security Token Required: FIDO2 physical touch was cancelled or timed out. Room access strictly blocked.');
       } else {
         console.error('WebAuthn challenge error:', err);
-        setErrorMsg(err?.message || 'Authentication Failed: Physical Hardware Token Not Detected or Verified.');
+        setErrorMsg(err?.message || 'Hardware Security Token Required: FIDO2 Token Verification Failed — Room Access Strictly Blocked.');
       }
     } finally {
       setIsChallenging(false);

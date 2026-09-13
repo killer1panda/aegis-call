@@ -66,4 +66,15 @@ describe('AegisCall Air-Gapped Offline Local Mesh Signaling Adapter', () => {
 
     expect(() => LocalMeshSignaling.disconnect(roomId, 'peer-carol')).not.toThrow();
   });
+
+  it('should accurately report operational signaling mode', () => {
+    const roomId = 'mesh-test-room-mode';
+    expect(LocalMeshSignaling.getSignalingMode(roomId)).toBe('offline');
+
+    LocalMeshSignaling.connect(roomId, 'peer-dave', () => {});
+    expect(LocalMeshSignaling.getSignalingMode(roomId)).toBe('browser-tab-broadcast');
+
+    LocalMeshSignaling.disconnect(roomId, 'peer-dave');
+    expect(LocalMeshSignaling.getSignalingMode(roomId)).toBe('offline');
+  });
 });

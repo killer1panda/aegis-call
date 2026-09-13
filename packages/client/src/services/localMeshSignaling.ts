@@ -11,14 +11,30 @@ export type MeshMessageHandler = (msg: MeshMessage) => void;
 
 /**
  * Air-Gapped Offline Local Mesh Signaling Adapter.
- * Coordinates peer discovery and WebRTC session negotiation over local network
- * broadcast channels with 0% reliance on internet access or cloud servers.
+ * Coordinates peer discovery and WebRTC session negotiation over:
+ * 1. Layer 1 (Same Host): Browser BroadcastChannel for tab-local testing.
+ * 2. Layer 2 (Cross-Machine Physical LAN): LAN UDP Multicast / Broadcast Beacon daemon (port 7777 / 224.0.0.251).
+ * 3. Layer 3 (Physical Air-Gap): Mobile MeshRadioAdapter (Bluetooth LE Peripheral & Wi-Fi Direct).
+ * Zero reliance on internet access, centralized servers, or external telemetry.
  */
 export class LocalMeshSignaling {
   private static channels = new Map<string, BroadcastChannel>();
   private static listeners = new Map<string, Set<MeshMessageHandler>>();
   private static lanPollIntervals = new Map<string, any>();
   private static knownLanPeers = new Map<string, Set<string>>();
+
+  /**
+   * Returns the current operational signaling transport mode.
+   */
+  public static getSignalingMode(roomId: string): 'lan-udp-beacon' | 'browser-tab-broadcast' | 'offline' {
+    if (!this.channels.has(`aegis-mesh:${roomId}`)) {
+      return 'offline';
+    }
+    if (this.lanPollIntervals.has(roomId)) {
+      return 'lan-udp-beacon';
+    }
+    return 'browser-tab-broadcast';
+  }
 
   /**
    * Initializes local broadcast channel and optional LAN UDP beacon synchronization.
