@@ -93,7 +93,7 @@ export function App() {
     clearUnreadChat,
     incomingCaption,
     broadcastCaption,
-  } = useWebRTC(roomId);
+  } = useWebRTC(roomId, selectedTransport);
 
   // Real-Time Video Privacy Shroud / Face Blur Filter
   const {

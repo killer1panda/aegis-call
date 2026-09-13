@@ -554,3 +554,24 @@ export function signCallRecordingAttestation(
   };
 }
 
+/**
+ * Cryptographically verifies a W3C CallRecordingAttestation.
+ */
+export function verifyCallRecordingAttestation(
+  attestation: CallRecordingAttestation,
+  publicKey?: Uint8Array
+): boolean {
+  try {
+    const cred = attestation.verifiableCredential;
+    const pubKey = publicKey || extractEd25519PublicKey(cred.issuer);
+    const signatureBytes = hexToBytes(attestation.proof.jws);
+
+    const canonicalString = `aegis-recording-v1:${cred.id}:${cred.issuer}:${cred.credentialSubject.roomId}:${cred.credentialSubject.recordingSha256}:${cred.credentialSubject.durationSeconds}`;
+    const digest = sha256(new TextEncoder().encode(canonicalString));
+
+    return ed25519.verify(signatureBytes, digest, pubKey);
+  } catch {
+    return false;
+  }
+}
+

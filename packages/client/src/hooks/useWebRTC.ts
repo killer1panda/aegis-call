@@ -33,6 +33,8 @@ import { useAudioWorklet } from './useAudioWorklet.js';
 import { AdaptiveBitrateController, ABRTelemetry } from '../services/congestionController.js';
 import { CallNotificationService } from '@aegis/mobile';
 import { AudioIsolationService } from '../services/audioIsolationService.js';
+import { SignalingTransportType } from '../components/TransportSelector.js';
+import { LocalMeshSignaling } from '../services/localMeshSignaling.js';
 
 export type CallState =
   | 'idle'
@@ -98,7 +100,7 @@ const fetchIceServers = async (peerId: string): Promise<RTCIceServer[]> => {
   return DEFAULT_ICE_SERVERS;
 };
 
-export function useWebRTC(roomId: string) {
+export function useWebRTC(roomId: string, transport: SignalingTransportType = 'ws') {
   const [callState, setCallState] = useState<CallState>('lobby');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -1165,6 +1167,9 @@ export function useWebRTC(roomId: string) {
     if (socketRef.current) {
       socketRef.current.send(JSON.stringify({ type: 'leave', roomId }));
       socketRef.current.close();
+    }
+    if (transport === 'mesh') {
+      LocalMeshSignaling.disconnect(roomId, peerIdRef.current);
     }
     if (pcRef.current) pcRef.current.close();
     if (workerRef.current) workerRef.current.terminate();
