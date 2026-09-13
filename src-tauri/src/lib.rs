@@ -122,7 +122,16 @@ pub fn run() {
             trigger_panic_wipe,
             get_audio_isolated_windows
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running aegis-call desktop application");
+        .build(tauri::generate_context!())
+        .expect("error while building aegis-call desktop application")
+        .run(|_app_handle, event| {
+            if let tauri::RunEvent::ExitRequested { .. } = event {
+                log::info!("AegisCall ExitRequested intercepted: zeroizing in-memory cryptographic scratch space");
+                let mut wipe_buf = CryptographicWipeBuffer {
+                    secret_padding: [0x5A; 4096],
+                };
+                wipe_buf.zeroize();
+            }
+        });
 }
 

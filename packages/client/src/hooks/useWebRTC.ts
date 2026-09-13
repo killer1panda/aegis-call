@@ -504,9 +504,9 @@ export function useWebRTC(roomId: string, transport: SignalingTransportType = 'w
       localStream.getTracks().forEach((track) => {
         const sender = pc.addTrack(track, localStream);
 
-        if (worker && 'RTCRtpScriptTransform' in window && (window as any).RTCRtpScriptTransform) {
+        if (worker && 'RTCRtpScriptTransform' in window && window.RTCRtpScriptTransform) {
           try {
-            (sender as any).transform = new (window as any).RTCRtpScriptTransform(worker, {
+            sender.transform = new window.RTCRtpScriptTransform(worker, {
               operation: 'encode',
               kind: track.kind,
             });
@@ -521,9 +521,9 @@ export function useWebRTC(roomId: string, transport: SignalingTransportType = 'w
       const stream = event.streams[0] || new MediaStream([event.track]);
       setRemoteStream(stream);
 
-      if (worker && 'RTCRtpScriptTransform' in window && (window as any).RTCRtpScriptTransform) {
+      if (worker && 'RTCRtpScriptTransform' in window && window.RTCRtpScriptTransform) {
         try {
-          (event.receiver as any).transform = new (window as any).RTCRtpScriptTransform(worker, {
+          event.receiver.transform = new window.RTCRtpScriptTransform(worker, {
             operation: 'decode',
             kind: event.track.kind,
           });
