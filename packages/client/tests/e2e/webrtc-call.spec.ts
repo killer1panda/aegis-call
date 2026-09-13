@@ -131,13 +131,24 @@ test.describe('AegisCall WebRTC E2E Protocol & Features Verification', () => {
       await audioIsolationBtnA.click();
       await expect(pageA.locator('button[title*="Audio Isolation: Active"]')).toBeVisible();
 
-      // 16. Test Duress PIN & Plausible Deniability Decoy Mode
+      // 16. Test Duress PIN & Plausible Deniability Decoy Mode (User Setup Workflow)
       await duressBtnA.click();
       await expect(pageA.getByRole('dialog', { name: /Duress/i })).toBeVisible();
+
+      // Test User PIN Setup Tab: configure custom Master & Duress PINs
+      await pageA.locator('button:has-text("Configure PINs")').click();
+      await pageA.getByPlaceholder('Enter current master PIN...').fill('1337');
+      await pageA.getByPlaceholder('4-8 digits').first().fill('2468'); // New Master PIN
+      await pageA.getByPlaceholder('4-8 digits').nth(1).fill('7777'); // New Duress PIN
+      await pageA.locator('button:has-text("SAVE CUSTOM PINS")').click();
+      await expect(pageA.locator('text=Custom Master & Duress PINs saved successfully!')).toBeVisible();
+
+      // Wait for automatic tab switch back to unlock or click Unlock Call
+      await pageA.locator('button:has-text("Unlock Call")').click();
       
-      // Enter Duress PIN (9999) to trigger silent RAM zeroization and decoy mode
+      // Enter newly configured custom Duress PIN (7777) to trigger silent RAM zeroization and decoy mode
       const pinInput = pageA.getByPlaceholder('Enter 4-8 digit PIN...');
-      await pinInput.fill('9999');
+      await pinInput.fill('7777');
       await pageA.locator('button:has-text("AUTHENTICATE & UNLOCK")').click();
 
       // Verify Decoy Mode Banner appears
