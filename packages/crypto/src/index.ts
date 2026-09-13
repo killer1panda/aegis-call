@@ -14,4 +14,9 @@ export * from './shamir.js';
 export * from './nfcPairing.js';
 export * from './acousticModem.js';
 export * from './crdtWhiteboard.js';
-
+export * from './secureEnclave.js';
+export * from './trafficCamouflage.js';
+export * from './protocolCamouflage.js';
+export * from './ultrasonicModem.js';
+export * from './zkMembership.js';
+export * from './quorumArchive.js';
