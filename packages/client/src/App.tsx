@@ -13,6 +13,7 @@ import { HardwareGateModal } from './components/HardwareGateModal.js';
 import { SocialRecoveryModal } from './components/SocialRecoveryModal.js';
 import { TelephonyDialpadModal } from './components/TelephonyDialpadModal.js';
 import { TransportSelectorModal, SignalingTransportType } from './components/TransportSelector.js';
+import { SovereignSentinelModal } from './components/SovereignSentinelModal.js';
 import { useWebRTC } from './hooks/useWebRTC.js';
 import { useLiveCaptions } from './hooks/useLiveCaptions.js';
 import { useVideoPrivacyMask } from './hooks/useVideoPrivacyMask.js';
@@ -35,6 +36,7 @@ export function App() {
   const [isSocialRecoveryOpen, setIsSocialRecoveryOpen] = useState(false);
   const [isTelephonyOpen, setIsTelephonyOpen] = useState(false);
   const [isTransportSelectorOpen, setIsTransportSelectorOpen] = useState(false);
+  const [isSentinelOpen, setIsSentinelOpen] = useState(false);
   const [selectedTransport, setSelectedTransport] = useState<SignalingTransportType>('ws');
   const [deadManTimeoutMinutes, setDeadManTimeoutMinutes] = useState(5);
 
@@ -192,6 +194,7 @@ export function App() {
         onOpenSocialRecovery={() => setIsSocialRecoveryOpen(true)}
         onOpenTelephony={() => setIsTelephonyOpen(true)}
         onOpenTransportSelector={() => setIsTransportSelectorOpen(true)}
+        onOpenSentinelSuite={() => setIsSentinelOpen(true)}
         selectedTransport={selectedTransport}
       />
 
@@ -287,6 +290,7 @@ export function App() {
             isAudioIsolationEnabled={isAudioIsolationEnabled}
             onToggleAudioIsolation={toggleAudioIsolation}
             onOpenTelephony={() => setIsTelephonyOpen(true)}
+            onOpenSentinelSuite={() => setIsSentinelOpen(true)}
             onOpenSecurity={() => setIsSecurityOpen(true)}
             onToggleHUD={() => setIsHUDOpen((prev) => !prev)}
             onToggleChat={handleOpenChat}
@@ -398,6 +402,14 @@ export function App() {
         onClose={() => setIsTransportSelectorOpen(false)}
         selectedTransport={selectedTransport}
         onSelectTransport={setSelectedTransport}
+      />
+
+      {/* Sovereign Sentinel & Anti-Surveillance Suite Modal */}
+      <SovereignSentinelModal
+        isOpen={isSentinelOpen}
+        onClose={() => setIsSentinelOpen(false)}
+        roomId={roomId}
+        localDid={localDid || undefined}
       />
 
       {/* Decoy Mode Banner */}

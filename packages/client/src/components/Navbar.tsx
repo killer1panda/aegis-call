@@ -1,5 +1,5 @@
 import React from 'react';
-import { Shield, ShieldCheck, ShieldAlert, Activity, Key, Copy, Check, Users, Phone, Radio } from 'lucide-react';
+import { Shield, ShieldCheck, ShieldAlert, Activity, Key, Copy, Check, Users, Phone, Radio, Cpu } from 'lucide-react';
 import { CallState } from '../hooks/useWebRTC.js';
 import { SignalingTransportType } from './TransportSelector.js';
 
@@ -14,6 +14,7 @@ interface NavbarProps {
   onOpenSocialRecovery?: () => void;
   onOpenTelephony?: () => void;
   onOpenTransportSelector?: () => void;
+  onOpenSentinelSuite?: () => void;
   selectedTransport?: SignalingTransportType;
 }
 
@@ -28,6 +29,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenSocialRecovery,
   onOpenTelephony,
   onOpenTransportSelector,
+  onOpenSentinelSuite,
   selectedTransport = 'ws',
 }) => {
   const [copied, setCopied] = React.useState(false);
@@ -149,6 +151,18 @@ export const Navbar: React.FC<NavbarProps> = ({
           >
             <Phone className="w-3.5 h-3.5 text-cyber-emerald" />
             <span className="hidden md:inline">Dialpad</span>
+          </button>
+        )}
+
+        {onOpenSentinelSuite && (
+          <button
+            onClick={onOpenSentinelSuite}
+            title="Sovereign Sentinel & Anti-Surveillance Suite (Hardware Enclave, Traffic Camouflage, Acoustic Air-Gap, ZK, Edge AI)"
+            data-testid="sovereign-sentinel-btn"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-dark-850 hover:bg-dark-800 border border-dark-700 text-xs text-cyber-cyan hover:text-cyan-300 transition-colors"
+          >
+            <Cpu className="w-3.5 h-3.5 text-cyber-cyan" />
+            <span className="hidden md:inline">Sentinels</span>
           </button>
         )}
 

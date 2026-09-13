@@ -27,6 +27,7 @@ import {
   EyeOff,
   BellOff,
   Phone,
+  Cpu,
 } from 'lucide-react';
 import { useAudioVisualizer } from '../hooks/useAudioVisualizer.js';
 import { IdentityService } from '../services/identityService.js';
@@ -48,6 +49,7 @@ interface CallRoomProps {
   onOpenScratchpad?: () => void;
   onOpenDuress?: () => void;
   onOpenTelephony?: () => void;
+  onOpenSentinelSuite?: () => void;
   isCaptionsEnabled?: boolean;
   onToggleCaptions?: () => void;
   captions?: Array<{ id: string; speaker: string; text: string; timestamp: number }>;
@@ -89,6 +91,7 @@ export const CallRoom: React.FC<CallRoomProps> = ({
   onOpenScratchpad,
   onOpenDuress,
   onOpenTelephony,
+  onOpenSentinelSuite,
   isCaptionsEnabled = false,
   onToggleCaptions,
   captions = [],
@@ -646,6 +649,19 @@ export const CallRoom: React.FC<CallRoomProps> = ({
             className="min-w-[44px] min-h-[44px] p-3 rounded-xl bg-dark-850 hover:bg-dark-800 border border-dark-700 text-cyber-emerald hover:text-emerald-300 transition-colors focus-visible:ring-2 focus-visible:ring-cyber-emerald focus-visible:outline-none"
           >
             <Phone className="w-5 h-5" aria-hidden="true" />
+          </button>
+        )}
+
+        {/* Sovereign Sentinel & Anti-Surveillance Suite */}
+        {onOpenSentinelSuite && (
+          <button
+            onClick={onOpenSentinelSuite}
+            aria-label="Open Sovereign Sentinel & Anti-Surveillance Suite"
+            title="Sovereign Sentinels, Hardware Enclave & Camouflage"
+            data-testid="callroom-sentinel-btn"
+            className="min-w-[44px] min-h-[44px] p-3 rounded-xl bg-dark-850 hover:bg-dark-800 border border-dark-700 text-cyber-cyan hover:text-cyan-300 transition-colors focus-visible:ring-2 focus-visible:ring-cyber-emerald focus-visible:outline-none"
+          >
+            <Cpu className="w-5 h-5" aria-hidden="true" />
           </button>
         )}
 
